@@ -76,59 +76,34 @@
 .card.sub-chem{ border-left:6px solid var(--sub-chem); }
 .card.sub-bio{ border-left:6px solid var(--sub-bio); }
 .card.sub-ict{ border-left:6px solid var(--sub-ict); }
-
-.msa-confetti{position:fixed;top:0;left:0;pointer-events:none;width:100%;height:0;overflow:visible;z-index:9999}
-.msa-confetti .p{position:absolute;width:8px;height:8px;border-radius:2px;opacity:0.95}
 </style>
-
-  <!-- Auto-versioning: self-updating via ETag/Last-Modified (+ short polling) -->
-  <script>
-    (function(){
-      var KEY = "msa_build_tag";
-      var POLL_MS = 20000, POLL_MAX = 15, checks = 0;
-      function checkOnce(){
-        fetch(location.href, { method:"HEAD", cache:"no-cache" }).then(function(res){
-          try{
-            var tag = res.headers.get("etag") || res.headers.get("last-modified") || "";
-            var prev = localStorage.getItem(KEY);
-            if (tag && prev && tag !== prev) {
-              localStorage.setItem(KEY, tag);
-              location.reload(true);
-            } else if (tag && !prev) {
-              localStorage.setItem(KEY, tag);
-            }
-          }catch(e){}
-        }).catch(function(){});
-      }
-      checkOnce();
-      var timer = setInterval(function(){
-        checks++; checkOnce();
-        if (checks >= POLL_MAX) clearInterval(timer);
-      }, POLL_MS);
-    })();
-  </script>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- UI Polish: Rings + Subject Chips + Popover -->
+  <!-- Meher Progress Card (dual rings) -->
   <style>
-    .msa-card{display:flex;align-items:center;gap:16px;padding:14px 16px;margin:12px 0;border:1px solid #eef2f7;border-radius:16px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+    /* Hide legacy donut charts above sessions/daily totals */
+    .c-ring-wrap{ display:none !important; }
+
+    .msa-card{display:flex;align-items:center;justify-content:space-between;gap:16px;
+      padding:14px 16px;margin:12px 0;border:1px solid #eef2f7;border-radius:16px;
+      background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+    .msa-left-rings{display:flex;gap:16px;align-items:center;}
     .msa-ring-wrap{position:relative;width:132px;height:132px;}
     .msa-ring{transform:rotate(-90deg);} .msa-ring circle{fill:none;stroke-linecap:round;}
     .msa-ring .bg{stroke:#e9edf3;stroke-width:10;} .msa-ring .fg{stroke-width:10;transition:stroke-dashoffset .6s ease;}
-    .msa-ring-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
-    .msa-ring-center .big{font-size:20px;font-weight:700;color:#111827;line-height:1;} .msa-ring-center .small{font-size:12px;color:#6b7280;margin-top:2px;}
-    .msa-linear{width:220px;height:8px;background:#eef2f7;border-radius:999px;overflow:hidden;} .msa-linear>span{display:block;height:100%;width:0%;background:linear-gradient(90deg,#60a5fa,#34d399);transition:width .6s;}
+    .msa-ring-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+    .msa-ring-center .big{font-size:18px;font-weight:700;color:#111827;line-height:1;}
+    .msa-ring-center .small{font-size:12px;color:#6b7280;margin-top:2px;}
+    .msa-right{display:flex;flex-direction:column;gap:6px;min-width:220px;flex:1;}
+    .msa-right .label{font-weight:600;color:#111827;}
+    .msa-linear{width:100%;height:8px;background:#eef2f7;border-radius:999px;overflow:hidden;}
+    .msa-linear>span{display:block;height:100%;width:0%;background:linear-gradient(90deg,#93c5fd,#86efac);transition:width .6s;}
     .msa-legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
-    .msa-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #e5e7eb;}
+    .msa-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;
+      background:#f8fafc;border:1px solid #e5e7eb;color:#0f172a;}
     .msa-chip .emo{font-size:14px;}
-    /* Popover */
-    .msa-pop{position:fixed;z-index:9999;pointer-events:none;background:#111827;color:#fff;padding:8px 10px;border-radius:8px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,0.2);opacity:0;transform:translateY(-4px);transition:opacity .15s, transform .15s;}
-    .msa-pop.show{opacity:1;transform:translateY(0);}
-  
-.msa-confetti{position:fixed;top:0;left:0;pointer-events:none;width:100%;height:0;overflow:visible;z-index:9999}
-.msa-confetti .p{position:absolute;width:8px;height:8px;border-radius:2px;opacity:0.95}
-</style>
+  </style>
 
 </head>
 <body>
@@ -445,7 +420,7 @@ function exportState(){
                 el("span",{class:"chip "+chipClass}, chipText)
               ]),
               el("div",{class:"row",style:"margin-top:8px"},[
-                el("button",{class:"btn", disabled:disabled, onclick:function(){ msaCheckburst(this); markDoneTodayTuition(s); }}, "□ Done"),
+                el("button",{class:"btn", disabled:disabled, onclick:function(){ markDoneTodayTuition(s); }}, "□ Done"),
                 (t.status!=="confirmed")? el("button",{class:"btn", onclick:function(){ setTuitionStatus(iso,s.idx,"confirmed"); }}, "✓ Confirm") : null,
                 (t.status!=="cancelled")? el("button",{class:"btn", onclick:function(){ openResModal(iso,s.idx,t.start,t.end); }}, "↺ Reschedule") : null,
                 el("button",{class:"btn", onclick:function(){ setTuitionStatus(iso,s.idx,"cancelled"); }}, "✗ Cancel")
@@ -1266,79 +1241,6 @@ var sb = null;
 function supaReady(){
   try{
     if(!window.supabase){ return false; }
-
-// ========= Realtime sync (plan + actuals) =========
-var __msaRealtimeSubscribed = false;
-function _msaMergeCloudIntoLocal(iso, planRows, actualRows){
-  try{
-    var existing = (state && state.days && state.days[iso]) ? state.days[iso] : { tuition:[], plan:[], actuals:[] };
-    var localPlan = [];
-    (planRows||[]).forEach(function(r){
-      if (r.kind !== 'self') return;
-      var s=(r.start_min|0), e=(r.end_min|0), mins=Math.max(0, e-s);
-      var idGen = (typeof cryptoUUID==="function")? cryptoUUID : function(){ return (r.id || (Date.now()+"-"+Math.random().toString(16).slice(2))); };
-      localPlan.push({ id:r.id||idGen(), subjectId:r.subject_id, start:toTime?toTime(s):s, end:toTime?toTime(e):e, duration:mins, topic:r.topic||"", isExtra:!!r.is_extra, cancelled:!!r.cancelled });
-    });
-    var localTuition = [];
-    (planRows||[]).forEach(function(r){
-      if (r.kind !== 'tuition') return;
-      var s=(r.start_min|0), e=(r.end_min|0);
-      var startT=toTime?toTime(s):s, endT=toTime?toTime(e):e;
-      var prev=(existing.tuition||[]).find(function(t){ return t.subjectId===r.subject_id && t.start===startT && t.end===endT; });
-      var idGen = (typeof cryptoUUID==="function")? cryptoUUID : function(){ return (r.id || (Date.now()+"-"+Math.random().toString(16).slice(2))); };
-      localTuition.push({ id:r.id||idGen(), subjectId:r.subject_id, start:startT, end:endT, status:(r.cancelled?"cancelled":(prev?prev.status:"confirmed")) });
-    });
-    var localActuals = [];
-    (actualRows||[]).forEach(function(a){
-      var s=(a.start_min|0), e=(a.end_min|0), mins=(a.duration_min|0);
-      var idGen = (typeof cryptoUUID==="function")? cryptoUUID : function(){ return (a.id || (Date.now()+"-"+Math.random().toString(16).slice(2))); };
-      localActuals.push({ id:a.id||idGen(), sessionPlanId:a.plan_id||null, subjectId:a.subject_id, type:"self", startActual:toTime?toTime(s):s, endActual:toTime?toTime(e):e, duration:mins, topic:a.topic||null });
-    });
-    if (!state.days) state.days = {};
-    state.days[iso] = { tuition:localTuition, plan:localPlan, actuals:localActuals };
-    if (typeof save==="function") save(state);
-  }catch(e){ console.warn("Merge cloud → local failed:", e&&e.message); }
-}
-async function refreshDayFromCloud(iso){
-  try{
-    if (!(typeof supaReady==="function") || !supaReady() || (typeof SUPA_USER_ID==="undefined") || !SUPA_USER_ID) return;
-    var r1 = await sb.from('sessions_plan').select('*').eq('user_id', SUPA_USER_ID).eq('iso', iso);
-    if (r1.error) throw r1.error;
-    var r2 = await sb.from('sessions_actual').select('*').eq('user_id', SUPA_USER_ID).eq('iso', iso);
-    if (r2.error) throw r2.error;
-    _msaMergeCloudIntoLocal(iso, r1.data||[], r2.data||[]);
-    if (typeof renderAll==="function") renderAll();
-  }catch(err){ console.warn('refreshDayFromCloud failed:', err&&err.message); }
-}
-function subscribeRealtime(){
-  try{
-    if (__msaRealtimeSubscribed) return;
-    if (!(typeof supaReady==="function") || !supaReady()) return;
-    if (typeof SUPA_USER_ID==="undefined" || !SUPA_USER_ID) return;
-    function _isoFromPayload(p){ return (p&&p.new&&p.new.iso) || (p&&p.old&&p.old.iso) || null; }
-    var filter = 'user_id=eq.' + SUPA_USER_ID;
-    sb.channel('plan-changes')
-      .on('postgres_changes', { event:'*', schema:'public', table:'sessions_plan', filter:filter }, function(payload){ var iso=_isoFromPayload(payload); if(iso) refreshDayFromCloud(iso); })
-      .subscribe();
-    sb.channel('actual-changes')
-      .on('postgres_changes', { event:'*', schema:'public', table:'sessions_actual', filter:filter }, function(payload){ var iso=_isoFromPayload(payload); if(iso) refreshDayFromCloud(iso); })
-      .subscribe();
-    __msaRealtimeSubscribed = true;
-  }catch(e){ console.warn("subscribeRealtime init failed:", e&&e.message); }
-}
-(function waitForAuthThenSubscribe(){
-  var tries=0, max=60;
-  var timer=setInterval(function(){
-    tries++;
-    try{
-      if ((typeof supaReady==="function") && supaReady() && (typeof SUPA_USER_ID!=="undefined") && SUPA_USER_ID){
-        subscribeRealtime(); clearInterval(timer);
-      }
-    }catch(_e){}
-    if (tries>=max) clearInterval(timer);
-  }, 1000);
-})();
-
     if(!sb){
       if(!SUPABASE_URL || !SUPABASE_ANON) return false;
       sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -1708,7 +1610,7 @@ var SHOW_CLOUD = location.search.includes("dev=1"); // Cloud panel only shows wi
 
   <script>
     (function(){
-      // Build subject catalog from SUBJECT_MAP if available
+      // Subject catalog fallback (uses SUBJECT_MAP if present)
       var MSA_SUBJECTS = [];
       if (typeof SUBJECT_MAP !== "undefined"){
         for (var id in SUBJECT_MAP){
@@ -1729,257 +1631,241 @@ var SHOW_CLOUD = location.search.includes("dev=1"); // Cloud panel only shows wi
         ];
       }
 
-      function isoOf(d){
-        var z = new Date(d.getTime() - d.getTimezoneOffset()*60000);
-        return z.toISOString().slice(0,10);
-      }
+      function isoOf(d){ var z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
+      function mondayOf(d){ var day=d.getDay(); var diff=(day===0?-6:(1-day)); var m=new Date(d); m.setDate(d.getDate()+diff); m.setHours(0,0,0,0); return m; }
+      function weekIsos(d){ var m=mondayOf(d), arr=[]; for(var i=0;i<7;i++){ var x=new Date(m); x.setDate(m.getDate()+i); arr.push((typeof toIso==="function")?toIso(x):isoOf(x)); } return arr; }
+
       function minutesToday(){
         var iso = (typeof toIso==="function") ? toIso(new Date()) : isoOf(new Date());
-        var list = (state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
+        var list = (window.state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
         return list.reduce(function(a,b){ return a + ((b.duration|0) || (b.duration_min|0) || 0); }, 0);
       }
-      function minutesBySubjectToday(subjId){
-        var iso = (typeof toIso==="function") ? toIso(new Date()) : isoOf(new Date());
-        var list = (state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
-        return list.filter(function(a){ return a.subjectId===subjId; }).reduce(function(a,b){ return a + ((b.duration|0)||(b.duration_min|0)||0); }, 0);
-      }
-      function mondayOf(d){
-        var day = d.getDay(); // Sun 0 ... Sat 6
-        var diff = (day===0? -6 : (1-day)); // shift to Monday
-        var m = new Date(d); m.setDate(d.getDate()+diff); m.setHours(0,0,0,0);
-        return m;
-      }
-      function weekIsos(d){
-        var m = mondayOf(d);
-        var arr = [];
-        for (var i=0;i<7;i++){ var x = new Date(m); x.setDate(m.getDate()+i); arr.push( (typeof toIso==="function")? toIso(x): isoOf(x) ); }
-        return arr;
-      }
       function minutesThisWeek(){
-        var isos = weekIsos(new Date());
-        var sum = 0;
+        var isos=weekIsos(new Date()); var sum=0;
         isos.forEach(function(iso){
-          var list = (state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
-          sum += list.reduce(function(a,b){ return a + ((b.duration|0)||(b.duration_min|0)||0); }, 0);
+          var list=(state&&state.days&&state.days[iso]&&state.days[iso].actuals)?state.days[iso].actuals:[];
+          sum+=list.reduce(function(a,b){ return a+((b.duration|0)||(b.duration_min|0)||0); },0);
         });
         return sum;
       }
-      function minutesBySubjectThisWeek(subjId){
-        var isos = weekIsos(new Date()); var sum = 0;
-        isos.forEach(function(iso){
-          var list = (state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
-          sum += list.filter(function(a){ return a.subjectId===subjId; }).reduce(function(a,b){ return a + ((b.duration|0)||(b.duration_min|0)||0); }, 0);
-        });
-        return sum;
-      }
-      function dailyTarget(d){ var n=d.getDay(); return (n===0||n===6)? 360 : 240; }
+      function dailyTarget(d){ var n=d.getDay(); return (n===0||n===6)?360:240; }
       var WEEKLY_TARGET = 1920;
 
-      function makeRingCard(idPrefix, title){
-        var card = document.createElement("section"); card.className="msa-card"; card.id=idPrefix+"Card";
-        card.innerHTML = ''
-          + '<div class="msa-ring-wrap">'
-          + '  <svg class="msa-ring" width="132" height="132">'
-          + '    <circle class="bg" cx="66" cy="66" r="56"></circle>'
-          + '    <circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.86" stroke-dashoffset="351.86"></circle>'
-          + '  </svg>'
-          + '  <div class="msa-ring-center">'
-          + '    <div class="big" id="'+idPrefix+'Big">0%</div>'
-          + '    <div class="small" id="'+idPrefix+'Small">0/0 min</div>'
-          + '  </div>'
-          + '</div>'
-          + '<div class="msa-right">'
-          + '  <div class="label" style="font-weight:600;color:#111827;margin-bottom:6px;">'+title+'</div>'
-          + '  <div class="msa-linear"><span id="'+idPrefix+'Linear" style="width:0%"></span></div>'
-          + '  <div class="msa-legend" id="'+idPrefix+'Legend"></div>'
-          + '</div>';
-        return card;
+      function fmtHM(m){ m|=0; var h=(m/60)|0, mm=m%60; return h? (h+"h"+(mm?(" "+mm+"m"):"")) : (mm+"m"); }
+
+      function ringTemplate(idBase, title){
+        return ''+
+          '<section class="msa-card" id="'+idBase+'Card">'+
+            '<div class="msa-left-rings">'+
+              // Minutes ring (left)
+              '<div class="msa-ring-wrap">'+
+                '<svg class="msa-ring" width="132" height="132">'+
+                  '<circle class="bg" cx="66" cy="66" r="56"></circle>'+
+                  '<circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.86" stroke-dashoffset="351.86"></circle>'+
+                '</svg>'+
+                '<div class="msa-ring-center">'+
+                  '<div class="big" id="'+idBase+'MinBig">0%</div>'+
+                  '<div class="small" id="'+idBase+'MinSmall">0/0 min</div>'+
+                '</div>'+
+              '</div>'+
+              // Hours ring (right)
+              '<div class="msa-ring-wrap">'+
+                '<svg class="msa-ring" width="132" height="132">'+
+                  '<circle class="bg" cx="66" cy="66" r="56"></circle>'+
+                  '<circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.86" stroke-dashoffset="351.86"></circle>'+
+                '</svg>'+
+                '<div class="msa-ring-center">'+
+                  '<div class="big" id="'+idBase+'HrBig">0h</div>'+
+                  '<div class="small" id="'+idBase+'HrSmall">of 0h</div>'+
+                '</div>'+
+              '</div>'+
+            '</div>'+
+            '<div class="msa-right">'+
+              '<div class="label" id="'+idBase+'Label">'+title+'</div>'+
+              '<div class="msa-linear"><span id="'+idBase+'Linear"></span></div>'+
+              '<div class="msa-legend" id="'+idBase+'Legend"></div>'+
+            '</div>'+
+          '</section>';
       }
-      function setRing(prefix, percent, doneMin, tgt){
+
+      function setRingElems(root, percent, bigSel, smallSel, bigText, smallText){
         var r=56, circ=2*Math.PI*r, offset=circ*(1-Math.max(0,Math.min(1,percent)));
-        var root = document.getElementById(prefix+"Card");
-        if (!root) return;
-        var fg = root.querySelector(".msa-ring .fg"); if (fg){ fg.setAttribute("stroke-dasharray", String(circ.toFixed(2))); fg.setAttribute("stroke-dashoffset", String(offset.toFixed(2))); fg.setAttribute("stroke", percent>=1? "#10b981" : "#3b82f6"); }
-        var big = document.getElementById(prefix+"Big"); if (big) big.textContent = Math.round(percent*100)+"%";
-        var small = document.getElementById(prefix+"Small"); if (small) small.textContent = (doneMin|0)+"/"+tgt+" min";
-        var lin = document.getElementById(prefix+"Linear"); if (lin) lin.style.width = Math.round(percent*100)+"%";
+        var fg = root.querySelector(".msa-ring .fg"); if(fg){ fg.setAttribute("stroke-dasharray", String(circ.toFixed(2))); fg.setAttribute("stroke-dashoffset", String(offset.toFixed(2))); fg.setAttribute("stroke", percent>=1? "#10b981" : "#3b82f6"); }
+        var big = root.querySelector(bigSel); if (big) big.textContent = bigText;
+        var small = root.querySelector(smallSel); if (small) small.textContent = smallText;
       }
-      // Confetti once when reaching 100%
-      ;(function(){
-        try{
-          window.__msaHit = window.__msaHit || { today:false, weekly:false };
-          if (percent >= 1){
-            if (prefix==="today" && !window.__msaHit.today){ window.__msaHit.today = true; if (typeof msaConfetti==="function") msaConfetti(0.5); }
-            if (prefix==="weekly" && !window.__msaHit.weekly){ window.__msaHit.weekly = true; if (typeof msaConfetti==="function") msaConfetti(0.5); }
-          }
-        }catch(e){}
-      })();
-    
+
+      function updateDualRings(idBase, doneMin, targetMin){
+        var card = document.getElementById(idBase+"Card"); if(!card) return;
+        var pct = targetMin ? (doneMin/targetMin) : 0;
+        // Left ring: minutes
+        setRingElems(card, pct, "#"+idBase+"MinBig", "#"+idBase+"MinSmall",
+          Math.round(pct*100)+"%", (doneMin|0)+"/"+targetMin+" min");
+        // Right ring: hours text
+        setRingElems(card, pct, "#"+idBase+"HrBig", "#"+idBase+"HrSmall",
+          fmtHM(doneMin), "of "+(targetMin/60)+"h");
+        // Linear bar
+        var lin = document.getElementById(idBase+"Linear"); if (lin) lin.style.width = Math.round(pct*100)+"%";
+      }
+
       function populateLegend(prefix){
-        var host = document.getElementById(prefix+"Legend"); if (!host) return;
-        host.innerHTML = "";
+        var host=document.getElementById(prefix+"Legend"); if(!host) return;
+        host.innerHTML="";
         MSA_SUBJECTS.forEach(function(s){
-          var chip = document.createElement("div");
-          chip.className = "msa-chip";
+          var chip=document.createElement("div");
+          chip.className="msa-chip";
           chip.setAttribute("data-subj", s.id);
-          var emo = document.createElement("span"); emo.className="emo"; emo.textContent=s.emoji||"";
-          var name = document.createElement("span"); name.textContent=s.name||s.id;
+          chip.setAttribute("data-name", s.name||s.id);
+          var emo=document.createElement("span"); emo.className="emo"; emo.textContent=s.emoji||"";
+          var name=document.createElement("span"); name.textContent=s.name||s.id;
           chip.appendChild(emo); chip.appendChild(name);
-          // add immediate hide on mouseleave for desktop
-          chip.addEventListener("mouseleave", function(){
-            if (typeof __msaActiveChip !== "undefined" && __msaActiveChip === chip) hidePopover();
-          });
           host.appendChild(chip);
-          });
-      }
-function ensurePopover(){
-        var pop = document.getElementById("msaPop");
-        if (!pop){ pop = document.createElement("div"); pop.id="msaPop"; pop.className="msa-pop"; document.body.appendChild(pop); }
-        return pop;
-      }
-      
-      function hidePopover(){
-        try{
-          var pop = document.getElementById("msaPop");
-          if (pop) pop.classList.remove("show");
-        }catch(e){}
-      }
-      var __msaActiveChip = null;
-    function fmtMin(m){ m|=0; var h=(m/60)|0, mm=m%60; return h? (h+"h "+(mm?mm+"m":"")) : (mm+" min"); }
-
-      // TODAY card insertion & updates
-      function renderTodayRing(){
-        var host = document.getElementById("screen-today");
-        if (!host) return;
-        var card = document.getElementById("todayCard");
-        if (!card){ card = makeRingCard("today", "Today’s Study Progress"); host.insertBefore(card, host.firstChild); populateLegend("today"); }
-        var now = new Date(); var target = dailyTarget(now); var done = minutesToday();
-        setRing("today", target? (done/target):0, done, target);
+        });
       }
 
-      // SUMMARY (weekly) card
-      function renderWeeklyRing(){
-        var host = document.getElementById("screen-summary");
-        if (!host) return;
-        var card = document.getElementById("weeklyCard");
-        if (!card){ card = makeRingCard("weekly", "This Week’s Study Progress"); host.insertBefore(card, host.firstChild); populateLegend("weekly"); }
+      function renderTodayBanner(){
+        var host = document.getElementById("screen-today"); if(!host) return;
+        var idBase = "today";
+        if (!document.getElementById(idBase+"Card")){
+          host.insertAdjacentHTML("afterbegin", ringTemplate(idBase, "Today’s Study Progress"));
+          populateLegend(idBase);
+        }
+        var now = new Date();
+        var target = dailyTarget(now);
+        var done = minutesToday();
+        updateDualRings(idBase, done, target);
+      }
+
+      function renderWeeklyBanner(){
+        var host = document.getElementById("screen-summary"); if(!host) return;
+        var idBase = "weekly";
+        if (!document.getElementById(idBase+"Card")){
+          host.insertAdjacentHTML("afterbegin", ringTemplate(idBase, "This Week’s Study Progress"));
+          populateLegend(idBase);
+        }
         var done = minutesThisWeek();
-        setRing("weekly", WEEKLY_TARGET? (done/WEEKLY_TARGET):0, done, WEEKLY_TARGET);
+        updateDualRings(idBase, done, WEEKLY_TARGET);
       }
 
-      // Hook into existing renderers if present
       document.addEventListener("DOMContentLoaded", function(){
-        renderTodayRing();
+        renderTodayBanner();
       });
       if (typeof window.renderToday === "function"){
         var __oldRT = window.renderToday;
-        window.renderToday = function(){ try{ __oldRT.apply(this, arguments);}catch(e){} try{ renderTodayRing(); }catch(e){} };
+        window.renderToday = function(){ try{ __oldRT.apply(this, arguments); }catch(e){} try{ renderTodayBanner(); }catch(e){} };
       }
       if (typeof window.renderSummary === "function"){
         var __oldRS = window.renderSummary;
-        window.renderSummary = function(){ try{ __oldRS.apply(this, arguments);}catch(e){} try{ renderWeeklyRing(); }catch(e){} };
+        window.renderSummary = function(){ try{ __oldRS.apply(this, arguments); }catch(e){} try{ renderWeeklyBanner(); }catch(e){} };
       }
+    })();
+  </script>
 
-      // Chip click → minimal popover with today + week totals
-      function onChipClick(e, prefix){
-        var chip = e.target.closest(".msa-chip"); if (!chip) return;
-        __msaActiveChip = chip;
-        var subj = chip.getAttribute("data-subj"); if (!subj) return;
-        var todayM = minutesBySubjectToday(subj);
-        var weekM  = minutesBySubjectThisWeek(subj);
-        var pop = ensurePopover();
-        var rect = chip.getBoundingClientRect();
-        pop.innerHTML = '<div style="font-weight:700;margin-bottom:2px">'+chip.textContent.trim()+'</div>'
-                      + '<div>Today: '+fmtMin(todayM)+'</div>'
-                      + '<div>This week: '+fmtMin(weekM)+'</div>';
-        pop.style.left = (rect.left + rect.width/2 - 70) + "px";
-        pop.style.top  = (rect.top + window.scrollY - 44) + "px";
-        pop.classList.add("show");
-      }
 
-      document.addEventListener("click", function(e){
-        // hide popover when clicking/tapping outside
+  <!-- Popover module: standalone, safe, no dependency on internal functions -->
+  <script>
+    (function(){
+      // Ensure popover node
+      function ensurePopover(){
         var pop = document.getElementById("msaPop");
-        if (pop && pop.classList.contains("show")){
-          if (!e.target.closest(".msa-chip") && !e.target.closest("#msaPop")){ hidePopover(); }
+        if (!pop){
+          pop = document.createElement("div");
+          pop.id = "msaPop";
+          pop.style.position = "fixed";
+          pop.style.zIndex = "9999";
+          pop.style.pointerEvents = "none";
+          pop.style.background = "#111827";
+          pop.style.color = "#fff";
+          pop.style.padding = "8px 10px";
+          pop.style.borderRadius = "8px";
+          pop.style.fontSize = "12px";
+          pop.style.boxShadow = "0 6px 20px rgba(0,0,0,0.2)";
+          pop.style.opacity = "0";
+          pop.style.transform = "translateY(-4px)";
+          pop.style.transition = "opacity .15s, transform .15s";
+          document.body.appendChild(pop);
         }
+        return pop;
+      }
+      function showPop(){ var p=ensurePopover(); p.style.opacity="1"; p.style.transform="translateY(0)"; p.classList.add("show"); }
+      function hidePop(){ var p=document.getElementById("msaPop"); if (p){ p.style.opacity="0"; p.style.transform="translateY(-4px)"; p.classList.remove("show"); } }
 
-        if (e.target.closest("#todayLegend")) onChipClick(e, "today");
-        else if (e.target.closest("#weeklyLegend")) onChipClick(e, "weekly");
-        else if (e.target.closest(".msa-chip")){
-          // If chips live directly under legends (no ids), still handle
-          onChipClick(e, "");
+      // Local helpers (do not rely on app's closure)
+      function toIsoLocal(d){ var z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
+      function mondayOf(d){ var day=d.getDay(); var diff=(day===0?-6:(1-day)); var m=new Date(d); m.setDate(d.getDate()+diff); m.setHours(0,0,0,0); return m; }
+      function weekIsos(d){ var m=mondayOf(d), arr=[]; for(var i=0;i<7;i++){ var x=new Date(m); x.setDate(m.getDate()+i); arr.push(toIsoLocal(x)); } return arr; }
+      function sumMins(list){ var n=0; for(var i=0;i<list.length;i++){ var a=list[i]; n += (a.duration|0) || (a.duration_min|0) || 0; } return n; }
+      function minutesTodayBySubject(subjId){
+        try{
+          var iso = (typeof toIso==="function") ? toIso(new Date()) : toIsoLocal(new Date());
+          var list = (window.state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
+          var filtered = list.filter(function(a){ return a.subjectId===subjId; });
+          return sumMins(filtered);
+        }catch(e){ return 0; }
+      }
+      function minutesWeekBySubject(subjId){
+        try{
+          var isos = weekIsos(new Date());
+          var tot = 0;
+          for (var i=0;i<isos.length;i++){
+            var iso = isos[i];
+            var list = (window.state && state.days && state.days[iso] && state.days[iso].actuals) ? state.days[iso].actuals : [];
+            var filtered = list.filter(function(a){ return a.subjectId===subjId; });
+            tot += sumMins(filtered);
+          }
+          return tot;
+        }catch(e){ return 0; }
+      }
+      function fmt(m){ m|=0; var h=(m/60)|0, mm=m%60; return h ? (h+"h "+(mm?mm+"m":"")) : (mm+" min"); }
+
+      var activeChip = null;
+
+      // Click to open
+      document.addEventListener("click", function(e){
+        var chip = e.target.closest && e.target.closest(".msa-chip");
+        if (!chip){
+          // outside click hides
+          if (activeChip){
+            var pop = document.getElementById("msaPop");
+            if (pop && !e.target.closest("#msaPop")) hidePop();
+            activeChip = null;
+          }
+          return;
         }
+        activeChip = chip;
+        var subj = chip.getAttribute("data-subj"); if (!subj) return;
+        var todayM = minutesTodayBySubject(subj);
+        var weekM  = minutesWeekBySubject(subj);
+        var label  = chip.getAttribute("data-name") || chip.textContent.trim();
+
+        var pop = ensurePopover();
+        pop.innerHTML = '<div style="font-weight:700;margin-bottom:2px">'+label+'</div>'
+                      + '<div>Today: '+fmt(todayM)+'</div>'
+                      + '<div>This week: '+fmt(weekM)+'</div>';
+
+        var rect = chip.getBoundingClientRect();
+        var left = rect.left + rect.width/2 - 70; if (left < 8) left = 8;
+        pop.style.left = left + "px";
+        pop.style.top  = (rect.top + window.scrollY - 44) + "px";
+        showPop();
       });
 
-      // Refresh rings when tab focused
-      document.addEventListener("visibilitychange", function(){ if (!document.hidden){ renderTodayRing(); renderWeeklyRing(); } });
-      window.addEventListener("focus", function(){ renderTodayRing(); renderWeeklyRing(); });
-    })();
-  </script>
-
-
-  <script>
-    // Micro-interaction ✓ burst
-    (function(){
-      window.msaCheckburst = function(el){
-        try{
-          var rect = el.getBoundingClientRect();
-          var b = document.createElement('div');
-          b.style.position='fixed';
-          b.style.left=(rect.left+rect.width/2-8)+'px';
-          b.style.top=(rect.top+window.scrollY-4)+'px';
-          b.style.zIndex=9999;
-          b.style.pointerEvents='none';
-          b.style.fontSize='18px';
-          b.style.color='#10b981';
-          b.textContent='✓';
-          document.body.appendChild(b);
-          b.animate([
-            { transform:'scale(0.6)', opacity:0 },
-            { transform:'scale(1.0)', opacity:1, offset:0.4 },
-            { transform:'scale(1.2) translateY(-6px)', opacity:0 }
-          ], { duration: 300, easing:'ease-out' }).onfinish = function(){ b.remove(); };
-        }catch(e){}
-      };
-    })();
-  </script>
-
-
-  <script>
-    // Prominent confetti (safe IIFE, no globals except window.msaConfetti)
-    (function(){
-      var root = document.createElement('div');
-      root.className = 'msa-confetti';
-      document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(root); });
-      function rnd(a,b){ return Math.random()*(b-a)+a; }
-      window.msaConfetti = function(centerXFraction){
-        try{
-          var count = 100;
-          var vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
-          var xCenter = (centerXFraction!=null ? centerXFraction : 0.5) * vw;
-          for (var i=0;i<count;i++){
-            var d = document.createElement('div'); d.className='p';
-            var size = Math.random()<0.5 ? rnd(6,12) : rnd(4,9);
-            d.style.width = size+'px'; d.style.height = size+'px';
-            var palettes = ['#22d3ee','#60a5fa','#f59e0b','#f43f5e','#10b981','#a78bfa'];
-            d.style.background = palettes[Math.floor(Math.random()*palettes.length)];
-            var x = xCenter + rnd(-160,160);
-            d.style.left = x+'px'; d.style.top = '0px';
-            root.appendChild(d);
-            (function(el){
-              var dx = rnd(-140,140);
-              var dy = rnd(300,480);
-              var rot = rnd(-540,540);
-              var dur = rnd(1200,1700);
-              el.animate([
-                { transform:'translate(0,0) rotate(0deg)', opacity:0.98 },
-                { transform:'translate('+dx+'px,'+dy+'px) rotate('+rot+'deg)', opacity:0 }
-              ], { duration: dur, easing:'cubic-bezier(.2,.7,.4,1)' }).onfinish = function(){ el.remove(); };
-            })(d);
-          }
-        }catch(e){}
-      };
+      // Pointer tracking: hide when pointer leaves the active chip area
+      document.addEventListener("mousemove", function(e){
+        if (!activeChip) return;
+        var rect = activeChip.getBoundingClientRect();
+        var x = e.clientX, y = e.clientY;
+        var inside = (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+        if (!inside){
+          var pop = document.getElementById("msaPop");
+          if (!pop || !pop.contains(e.target)){ hidePop(); activeChip = null; }
+        }
+      });
+      // Touch: any touch outside chip/popover hides
+      document.addEventListener("touchstart", function(e){
+        if (!activeChip) return;
+        if (!e.target.closest(".msa-chip") && !e.target.closest("#msaPop")){ hidePop(); activeChip = null; }
+      }, {passive:true});
     })();
   </script>
 
