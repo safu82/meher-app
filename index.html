@@ -76,6 +76,77 @@
 .card.sub-chem{ border-left:6px solid var(--sub-chem); }
 .card.sub-bio{ border-left:6px solid var(--sub-bio); }
 .card.sub-ict{ border-left:6px solid var(--sub-ict); }
+
+/* --- Mobile responsiveness pass (stack, wrap, larger taps) --- */
+
+/* 720px and down: tablet/large phones */
+@media (max-width: 720px) {
+  .container { padding: 16px; }
+
+  /* Tabs become horizontally scrollable chips */
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { flex: 0 0 auto; }
+
+  /* Let action rows wrap instead of squishing */
+  .row, .row-space { flex-wrap: wrap; }
+
+  /* Grid of 3 → responsive auto-fit */
+  .grid3 { 
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
+  }
+
+  /* Cards: give a bit more internal spacing for fingers */
+  .card { padding: 14px; }
+
+  /* Inputs and selects fill available width */
+  .input, select { width: 100%; }
+
+  /* Buttons inside cards: stack nicely */
+  .card .row .btn { margin-bottom: 6px; }
+}
+
+/* 480px and down: phones */
+@media (max-width: 480px) {
+  /* Reduce global font crowding a touch */
+  body { font-size: 15px; }
+
+  /* Make buttons comfy (44px+ targets) */
+  .btn { 
+    width: 100%;
+    padding: 10px 12px; 
+    text-align: center;
+  }
+
+  /* Time pickers & selects stack under labels */
+  label .input, label select { width: 100%; }
+
+  /* Session meta moves to two rows for readability */
+  .card .row-space { gap: 10px; }
+
+  /* Progress bar stays visible and clear */
+  .bar { height: 12px; }
+
+  /* Donut ring container (if/when visible) centers and shrinks a bit */
+  .c-ring { --size: 80px; }
+}
+
+/* Very small devices (360px and down) */
+@media (max-width: 360px) {
+  .container { padding: 12px; }
+  .tab { padding: 6px 10px; font-size: 13px; }
+  .pill { font-size: 11px; }
+}
+
+/* Modal: full-width sheet on mobile */
+@media (max-width: 720px) {
+  .modal .box {
+    max-width: 100%;
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+    margin-top: auto;
+  }
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -1868,6 +1939,246 @@ var SHOW_CLOUD = location.search.includes("dev=1"); // Cloud panel only shows wi
       }, {passive:true});
     })();
   </script>
+
+
+  <script>
+  (function(){
+    function z2(n){ return n<10?("0"+n):(""+n); }
+    function isoOf(d){ var z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
+    function mondayOf(d){ var day=d.getDay(); var diff=(day===0?-6:(1-day)); var m=new Date(d); m.setDate(d.getDate()+diff); m.setHours(0,0,0,0); return m; }
+    function weekIsos(d){ var m=mondayOf(d), arr=[]; for(var i=0;i<7;i++){ var x=new Date(m); x.setDate(m.getDate()+i); arr.push((typeof toIso==="function")?toIso(x):isoOf(x)); } return arr; }
+    function minutesToday(){
+      var iso=(typeof toIso==="function")? toIso(new Date()): isoOf(new Date());
+      var list=(window.state&&state.days&&state.days[iso]&&state.days[iso].actuals)? state.days[iso].actuals: [];
+      var n=0; for(var i=0;i<list.length;i++){ var a=list[i]; n += (a.duration|0) || (a.duration_min|0) || 0; } return n;
+    }
+    function minutesThisWeek(){
+      var isos=weekIsos(new Date()); var sum=0;
+      for(var i=0;i<isos.length;i++){ var iso=isos[i];
+        var list=(state&&state.days&&state.days[iso]&&state.days[iso].actuals)?state.days[iso].actuals:[];
+        for(var j=0;j<list.length;j++){ var a=list[j]; sum += (a.duration|0)||(a.duration_min|0)||0; }
+      } return sum;
+    }
+    function dailyTarget(d){ var n=d.getDay(); return (n===0||n===6)?360:240; } // min
+    var WEEKLY_TARGET = 1920; // min
+    function fmtHM(m){ m|=0; var h=(m/60)|0, mm=m%60; return (h? (h+'h') : '') + (mm? (h?' ':'')+mm+'m' : (!h?'0m':'')); }
+
+    // Subject catalog from app if present
+    var MSA_SUBJECTS=[];
+    if (window.SUBJECT_MAP){
+      for (var k in SUBJECT_MAP){ if(!SUBJECT_MAP.hasOwnProperty(k)) continue;
+        var v=SUBJECT_MAP[k]||{}; MSA_SUBJECTS.push({id:k, name:v.name||k, emoji:v.emoji||""});
+      }
+    }
+
+    function ringCard(idBase, title){
+      return ''+
+        '<section class="msa-card" id="'+idBase+'Card">'+
+          '<div class="msa-left">'+
+            '<div class="msa-ring-wrap">'+
+              '<svg class="msa-ring" width="132" height="132">'+
+                '<circle class="bg" cx="66" cy="66" r="56"></circle>'+
+                '<circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.86" stroke-dashoffset="351.86"></circle>'+
+              '</svg>'+
+              '<div class="msa-ring-center">'+
+                '<div class="big" id="'+idBase+'Big">0%</div>'+
+                '<div class="small" id="'+idBase+'Small">0 of 0h</div>'+
+              '</div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="msa-right">'+
+            '<div class="label">'+title+'</div>'+
+            '<div class="msa-linear"><span id="'+idBase+'Linear"></span></div>'+
+            '<div class="msa-legend" id="'+idBase+'Legend"></div>'+
+          '</div>'+
+        '</section>';
+    }
+
+    function setRing(root, percent, doneMin, targetMin){
+      var r=56, circ=2*Math.PI*r, offset=circ*(1-Math.max(0,Math.min(1,percent)));
+      var fg=root.querySelector(".msa-ring .fg"); if(fg){ fg.setAttribute("stroke-dasharray", String(circ.toFixed(2))); fg.setAttribute("stroke-dashoffset", String(offset.toFixed(2))); fg.setAttribute("stroke", percent>=1? "#10b981" : "#3b82f6"); }
+      var big=root.querySelector(".msa-ring-center .big"); if (big) big.textContent = Math.round(percent*100)+"%";
+      var small=root.querySelector(".msa-ring-center .small"); if (small) small.textContent = fmtHM(doneMin)+" of "+(targetMin/60)+"h";
+      var lin=root.querySelector(".msa-linear>span"); if (lin) lin.style.width=Math.round(percent*100)+"%";
+    }
+
+    function populateLegend(prefix){
+      var host=document.getElementById(prefix+"Legend"); if(!host) return;
+      host.innerHTML="";
+      (MSA_SUBJECTS||[]).forEach(function(s){
+        var chip=document.createElement("div");
+        chip.className="msa-chip"; chip.setAttribute("data-subj", s.id); chip.setAttribute("data-name", s.name||s.id);
+        var emo=document.createElement("span"); emo.className="emo"; emo.textContent=s.emoji||"";
+        var name=document.createElement("span"); name.textContent=s.name||s.id;
+        chip.appendChild(emo); chip.appendChild(name);
+        host.appendChild(chip);
+      });
+    }
+
+    function removeExistingCards(){
+      var a=document.getElementById("todayCard"); if(a && a.parentNode) a.parentNode.removeChild(a);
+      var b=document.getElementById("weeklyCard"); if(b && b.parentNode) b.parentNode.removeChild(b);
+    }
+
+    function renderTodayBanner(){
+      var host=document.getElementById("screen-today"); if(!host) return;
+      if (!document.getElementById("todayCard")){
+        host.insertAdjacentHTML("afterbegin", ringCard("today", "Today’s Study Progress"));
+        populateLegend("today");
+      }
+      var now=new Date(); var tgt=dailyTarget(now); var done=minutesToday();
+      setRing(document.getElementById("todayCard"), tgt? (done/tgt):0, done, tgt);
+    }
+
+    function renderWeeklyBanner(){
+      var host=document.getElementById("screen-summary"); if(!host) return;
+      if (!document.getElementById("weeklyCard")){
+        host.insertAdjacentHTML("afterbegin", ringCard("weekly", "This Week’s Study Progress"));
+        populateLegend("weekly");
+      }
+      var done=minutesThisWeek();
+      setRing(document.getElementById("weeklyCard"), WEEKLY_TARGET? (done/WEEKLY_TARGET):0, done, WEEKLY_TARGET);
+    }
+
+    // Hook into app renders
+    document.addEventListener("DOMContentLoaded", function(){
+      removeExistingCards();
+      renderTodayBanner();
+    });
+    if (typeof window.renderToday === "function"){
+      var __oldRT = window.renderToday;
+      window.renderToday = function(){ try{ __oldRT.apply(this, arguments);}catch(e){} try{ removeExistingCards(); renderTodayBanner(); }catch(e){} };
+    }
+    if (typeof window.renderSummary === "function"){
+      var __oldRS = window.renderSummary;
+      window.renderSummary = function(){ try{ __oldRS.apply(this, arguments);}catch(e){} try{ removeExistingCards(); renderWeeklyBanner(); }catch(e){} };
+    }
+  })();
+  </script>
+
+
+<script>
+(function(){
+  // --- Helpers (reuse those already defined by v11 if present) ---
+  function fmtHM(m){ m|=0; var h=(m/60)|0, mm=m%60; return (h? (h+'h') : '') + (mm? (h?' ':'')+mm+'m' : (!h?'0m':'')); }
+  function isoOf(d){ var z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
+  function mondayOf(d){ var day=d.getDay(); var diff=(day===0?-6:(1-day)); var m=new Date(d); m.setDate(m.getDate()+diff); m.setHours(0,0,0,0); return m; }
+  function weekIsos(d){ var m=mondayOf(d), arr=[]; for(var i=0;i<7;i++){ var x=new Date(m); x.setDate(m.getDate()+i); arr.push((typeof toIso==="function")?toIso(x):isoOf(x)); } return arr; }
+  function minutesToday(){
+    var iso=(typeof toIso==="function")? toIso(new Date()): isoOf(new Date());
+    var list=(window.state&&state.days&&state.days[iso]&&state.days[iso].actuals)? state.days[iso].actuals: [];
+    var n=0; for(var i=0;i<list.length;i++){ var a=list[i]; n += (a.duration|0) || (a.duration_min|0) || 0; } return n;
+  }
+  function minutesThisWeek(){
+    var isos=weekIsos(new Date()); var sum=0;
+    for(var i=0;i<isos.length;i++){ var iso=isos[i];
+      var list=(state&&state.days&&state.days[iso]&&state.days[iso].actuals)?state.days[iso].actuals:[];
+      for(var j=0;j<list.length;j++){ var a=list[j]; sum += (a.duration|0)||(a.duration_min|0)||0; }
+    } return sum;
+  }
+  function dailyTarget(d){ var n=d.getDay(); return (n===0||n===6)?360:240; }
+  var WEEKLY_TARGET = 1920;
+
+  function ringHTML(prefix, title){
+    return ''+
+      '<section class="msa-card" id="'+prefix+'Card">'+
+        '<div class="msa-left">'+
+          '<div class="msa-ring-wrap">'+
+            '<svg class="msa-ring" width="132" height="132">'+
+              '<circle class="bg" cx="66" cy="66" r="56"></circle>'+
+              '<circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.86" stroke-dashoffset="351.86"></circle>'+
+            '</svg>'+
+            '<div class="msa-ring-center">'+
+              '<div class="big" id="'+prefix+'Big">0%</div>'+
+              '<div class="small" id="'+prefix+'Small">0 of 0h</div>'+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="msa-right">'+
+          '<div class="label">'+title+'</div>'+
+          '<div class="msa-linear"><span id="'+prefix+'Linear"></span></div>'+
+          '<div class="msa-legend" id="'+prefix+'Legend"></div>'+
+        '</div>'+
+      '</section>';
+  }
+
+  function ensureCard(prefix){
+    var host = document.getElementById(prefix==="today" ? "screen-today" : "screen-summary");
+    if (!host) return null;
+    var card = document.getElementById(prefix+"Card");
+    if (!card){
+      var title = (prefix==="today") ? "Today’s Study Progress" : "This Week’s Study Progress";
+      host.insertAdjacentHTML("afterbegin", ringHTML(prefix, title));
+      // fill legend once
+      try {
+        var M = [];
+        if (window.SUBJECT_MAP){
+          for (var k in SUBJECT_MAP){ if(!SUBJECT_MAP.hasOwnProperty(k)) continue;
+            var v=SUBJECT_MAP[k]||{}; M.push({id:k, name:v.name||k, emoji:v.emoji||""});
+          }
+        }
+        var legend = document.getElementById(prefix+"Legend");
+        if (legend){
+          legend.innerHTML = "";
+          (M||[]).forEach(function(s){
+            var chip=document.createElement("div"); chip.className="msa-chip";
+            chip.setAttribute("data-subj", s.id); chip.setAttribute("data-name", s.name||s.id);
+            var emo=document.createElement("span"); emo.className="emo"; emo.textContent=s.emoji||"";
+            var name=document.createElement("span"); name.textContent=s.name||s.id;
+            chip.appendChild(emo); chip.appendChild(name); legend.appendChild(chip);
+          });
+        }
+      }catch(e){}
+      card = document.getElementById(prefix+"Card");
+    }
+    return card;
+  }
+
+  function updateCard(prefix){
+    var card = ensureCard(prefix); if (!card) return;
+    var done = (prefix==="today") ? minutesToday() : minutesThisWeek();
+    var tgt  = (prefix==="today") ? dailyTarget(new Date()) : WEEKLY_TARGET;
+    var percent = tgt ? (done/tgt) : 0;
+    var r=56, circ=2*Math.PI*r, offset=circ*(1-Math.max(0,Math.min(1,percent)));
+    var fg=card.querySelector(".msa-ring .fg"); if(fg){ fg.setAttribute("stroke-dasharray", String(circ.toFixed(2))); fg.setAttribute("stroke-dashoffset", String(offset.toFixed(2))); fg.setAttribute("stroke", percent>=1? "#10b981" : "#3b82f6"); }
+    var big=card.querySelector(".msa-ring-center .big"); if (big) big.textContent = Math.round(percent*100)+"%";
+    var small=card.querySelector(".msa-ring-center .small"); if (small) small.textContent = fmtHM(done)+" of "+(tgt/60)+"h";
+    var lin=card.querySelector(".msa-linear>span"); if (lin) lin.style.width=Math.round(percent*100)+"%";
+  }
+
+  function observeAndMaintain(prefix){
+    var containerId = (prefix==="today")?"screen-today":"screen-summary";
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    var obs = new MutationObserver(function(muts){
+      // If our card was removed during a render, re-add and update
+      if (!document.getElementById(prefix+"Card")){
+        ensureCard(prefix);
+      }
+      updateCard(prefix);
+    });
+    obs.observe(container, { childList:true, subtree:false });
+    // Initial update
+    ensureCard(prefix); updateCard(prefix);
+  }
+
+  // Run once ready
+  document.addEventListener("DOMContentLoaded", function(){
+    observeAndMaintain("today");
+    observeAndMaintain("weekly");
+  });
+
+  // Also hook common app render points if present
+  if (typeof window.renderToday === "function"){
+    var __rt = window.renderToday;
+    window.renderToday = function(){ try{ __rt.apply(this, arguments);}catch(e){} try{ updateCard("today"); }catch(e){} };
+  }
+  if (typeof window.renderSummary === "function"){
+    var __rs = window.renderSummary;
+    window.renderSummary = function(){ try{ __rs.apply(this, arguments);}catch(e){} try{ updateCard("weekly"); }catch(e){} };
+  }
+})();
+</script>
 
 </body>
 </html>
