@@ -104,26 +104,30 @@ exports.handler = async (event) => {
     let sent = 0;
     const errors = [];
 
-    for (const r of rows) {
-      const body = new URLSearchParams({
-        From: TWILIO_WHATSAPP_FROM,        // already "whatsapp:+1..."
-        To: `whatsapp:${r.to}`,            // user phone -> "whatsapp:+91..."
-        Body: r.msg,
-      });
+for (const r of rows) {
+  const body = new URLSearchParams({
+    From: TWILIO_WHATSAPP_FROM,        // already "whatsapp:+1..."
+    To: `whatsapp:${r.to}`,            // user phone -> "whatsapp:+91..."
+    Body: r.msg,
+  });
 
-      const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
 
-      let j = {};
-      try { j = await res.json(); } catch (_) {}
+  let j = {};
+  try { j = await res.json(); } catch (_) {}
 
-      if (res.ok) sent++;
-      else errors.push({ to: r.to, error: j.message || res.statusText || `HTTP ${res.status}` });
-    }
+  // 👇 ADD THIS LINE
+  console.log("Twilio response:", j);
+
+  if (res.ok) sent++;
+  else errors.push({ to: r.to, error: j.message || res.statusText || `HTTP ${res.status}` });
+}
+
 
     return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, kind, attempted: rows.length, sent, errors }) };
   } catch (e) {
