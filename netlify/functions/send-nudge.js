@@ -24,7 +24,7 @@ exports.handler = async (event) => {
   // ---- Hard-coded fallback for Meher (set this once) ----
   // Put Meher's WhatsApp number here in E.164 format, e.g. "+91XXXXXXXXXX".
   // If you leave this empty, the code will fall back to profiles.meher_phone.
-  const DEFAULT_MEHER_TO = "+919987785027";
+  const DEFAULT_MEHER_TO = "+918976451784";
 
   // ===== Basic config check =====
   const must = [
