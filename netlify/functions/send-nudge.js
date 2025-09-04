@@ -90,7 +90,7 @@ exports.handler = async (event) => {
       // Minimal test: just confirm the route + send path work
       for (const p of profiles) {
         if (!p.daily_opt_in) continue;
-        const to = "+91XXXXXXXXXX";  // put your own mobile number here
+        const to = "+919987785027";  // put your own mobile number here
         if (!to.startsWith("+")) continue;
         const msg = `Wrap check (test): it’s ${nowIST}. If you got this, wiring is good.\nOpen the app: ${SITE_URL || ""}`;
         rows.push({ to, msg });
