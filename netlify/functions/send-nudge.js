@@ -13,9 +13,9 @@ exports.handler = async (event) => {
     SUPABASE_SERVICE_ROLE_KEY,
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
-    TWILIO_WHATSAPP_FROM,
-    SITE_URL,
-    CRON_SECRET
+    TWILIO_WHATSAPP_FROM, // e.g. "whatsapp:+1415xxxxxxx"
+    SITE_URL,             // optional: link to your app
+    CRON_SECRET           // query param token guard
   } = process.env;
 
   // Basic config checks
@@ -32,15 +32,23 @@ exports.handler = async (event) => {
       return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: "Unauthorized" }) };
     }
 
-    // kind=plan|log|weekly_parent (we'll start with plan)
+    // kind=plan|log|weekly_parent|wrap2230
     const kind = (params.kind || "plan").toLowerCase();
 
     // 1) Load profiles (service role — server-side only)
-    const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=user_id,full_name,meher_phone,parent_phone,tz,daily_opt_in,weekly_parent_opt_in`, {
+    const select = [
+      "user_id",
+      "meher_phone",
+      "parent_phone",
+      "tz",
+      "daily_opt_in",
+      "weekly_parent_opt_in",
+    ].join(",");
+    const profRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=${encodeURIComponent(select)}`, {
       headers: {
         apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      }
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
     });
     if (!profRes.ok) {
       const t = await profRes.text();
@@ -48,13 +56,16 @@ exports.handler = async (event) => {
     }
     const profiles = await profRes.json();
 
+    // Helper: local time (IST) string for testing
+    const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
     // 2) Choose recipients + message
     let rows = [];
     if (kind === "plan") {
       // Daily: Meher’s phone if opted-in
       for (const p of profiles) {
         if (!p.daily_opt_in) continue;
-        const to = (p.meher_phone || "").trim();
+        const to = "+919987785027";   // your personal number in E.164 format
         if (!to.startsWith("+")) continue; // must be E.164
         const msg = `⏰ Quick nudge: Please plan tomorrow by 22:00.\nOpen the app: ${SITE_URL || ""}`;
         rows.push({ to, msg });
@@ -72,35 +83,46 @@ exports.handler = async (event) => {
         if (!p.weekly_parent_opt_in) continue;
         const to = (p.parent_phone || "").trim();
         if (!to.startsWith("+")) continue;
-        const msg = `📊 Weekly summary is ready. Open the dashboard: ${SITE_URL || ""}`;
+        const msg = `📊 Weekly update is ready.\nOpen the app: ${SITE_URL || ""}`;
+        rows.push({ to, msg });
+      }
+    } else if (kind === "wrap2230") {
+      // Minimal test: just confirm the route + send path work
+      for (const p of profiles) {
+        if (!p.daily_opt_in) continue;
+        const to = (p.meher_phone || "").trim();
+        if (!to.startsWith("+")) continue;
+        const msg = `Wrap check (test): it’s ${nowIST}. If you got this, wiring is good.\nOpen the app: ${SITE_URL || ""}`;
         rows.push({ to, msg });
       }
     } else {
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Unknown kind" }) };
-    }
-
-    if (!rows.length) {
-      return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, sent: 0, reason: "no recipients" }) };
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: `Unknown kind: ${kind}` }) };
     }
 
     // 3) Send via Twilio
     const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
-    let sent = 0, errors = [];
+    let sent = 0;
+    const errors = [];
 
     for (const r of rows) {
-      const params = new URLSearchParams();
-      params.append("From", TWILIO_WHATSAPP_FROM);      // e.g. whatsapp:+1...
-      params.append("To", `whatsapp:${r.to}`);
-      params.append("Body", r.msg);
+      const body = new URLSearchParams({
+        From: TWILIO_WHATSAPP_FROM,        // already "whatsapp:+1..."
+        To: `whatsapp:${r.to}`,            // user phone -> "whatsapp:+91..."
+        Body: r.msg,
+      });
 
       const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
       const res = await fetch(url, {
         method: "POST",
         headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
+        body: body.toString(),
       });
-      const j = await res.json().catch(()=> ({}));
-      if (res.ok) sent++; else errors.push({ to: r.to, error: j.message || res.statusText });
+
+      let j = {};
+      try { j = await res.json(); } catch (_) {}
+
+      if (res.ok) sent++;
+      else errors.push({ to: r.to, error: j.message || res.statusText || `HTTP ${res.status}` });
     }
 
     return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, kind, attempted: rows.length, sent, errors }) };
