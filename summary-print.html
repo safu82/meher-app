@@ -96,6 +96,7 @@
       <h3>Highlights</h3>
       <ul id="highlightsList"></ul>
       <div class="filename" id="fileHint"></div>
+      <div class="filename" id="dataHint"></div>
     </section>
   </div>
 
@@ -291,6 +292,13 @@
         sb = window.supabase.createClient(SB_URL, SB_KEY);
       }
     }catch(e){ console.warn('Supabase init failed:', e); }
+    // Query param overrides for data source
+    const QP = new URLSearchParams(location.search);
+    const OV_TABLE = QP.get('table') || null;
+    const OV_DATECOL = QP.get('datecol') || null;
+    const OV_MINSCOL = QP.get('minscol') || null;
+    const OV_SUBCOL  = QP.get('subcol')  || null;
+
 
     // ---------- Fallback subjects if we can't fetch the master list ----------
     const FALLBACK_SUBJECTS = [
@@ -321,16 +329,23 @@
       ) || 0;
     }
     function adaptSubject(row){
-      return String(
-        row.subject ?? row.subject_name ?? row.sub ?? row.topic ?? row.name ?? ""
-      );
+      if (OV_SUBCOL && row[OV_SUBCOL] != null) return String(row[OV_SUBCOL]);
+      return String(row.subject ?? row.subject_name ?? row.sub ?? row.topic ?? row.name ?? "");
     }
     function adaptDate(row){
+      if (OV_DATECOL && row[OV_DATECOL] != null) return row[OV_DATECOL];
       return row.date ?? row.day ?? row.start_time ?? row.started_at ?? row.ts ?? row.created_at ?? null;
     }
 
     async function tryFetchSessions(fromISO, toISO){
       if (!sb) return null;
+      if (OV_TABLE){
+        try{
+          const col = OV_DATECOL || 'date';
+          const { data, error } = await sb.from(OV_TABLE).select("*").gte(col, fromISO).lte(col, toISO).limit(10000);
+          if (!error && Array.isArray(data)) return { data, source: `${OV_TABLE}.${col}` };
+        }catch(e){ /* fall through */ }
+      }
       const tables = [
         {name:"sessions_actual", col:"date"},
         {name:"sessions", col:"date"},
@@ -342,21 +357,27 @@
       for (const t of tables){
         try{
           const { data, error } = await sb.from(t.name).select("*").gte(t.col, fromISO).lte(t.col, toISO).limit(10000);
-          if (!error && Array.isArray(data)) {
-            return data;
-          }
+          if (!error && Array.isArray(data)) return { data, source: `${t.name}.${t.col}` };
         }catch(e){ /* try next */ }
       }
-      // Try an RPC if it exists
       try{
         const { data, error } = await sb.rpc("weekly_summary", { from_date: fromISO, to_date: toISO });
-        if (!error && Array.isArray(data)) return data;
+        if (!error && Array.isArray(data)) return { data, source: "rpc.weekly_summary" };
       }catch(e){}
       return null;
     }
 
     async function fetchRecentSessions(daysBack=400){
       if (!sb) return [];
+      if (OV_TABLE){
+        try{
+          const since = new Date(); since.setDate(since.getDate()-daysBack);
+          const fromISO = since.toISOString().slice(0,10);
+          const col = OV_DATECOL || 'date';
+          const { data, error } = await sb.from(OV_TABLE).select("*").gte(col, fromISO).limit(20000);
+          if (!error && Array.isArray(data) && data.length) return data;
+        }catch(e){}
+      }
       const since = new Date(); since.setDate(since.getDate()-daysBack);
       const fromISO = since.toISOString().slice(0,10);
       const tables = [
@@ -493,6 +514,8 @@
       (async ()=>{
         const live = await loadWeeklyData(from, to);
         const DATA = live || MOCK;
+        const hint = document.getElementById('dataHint');
+        if (hint) { hint.textContent = live ? `Data source: ${OV_TABLE ? OV_TABLE : 'auto-detected'} (cols: ${OV_DATECOL||'date'} / ${OV_SUBCOL||'subject'} / ${OV_MINSCOL||'minutes'})` : 'Data source: MOCK (fallback)'; }
         renderKPIs(DATA, from, to);
         renderGroupedBarChart(DATA);
         renderTable(DATA);
