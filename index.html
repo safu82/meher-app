@@ -809,7 +809,7 @@ row.appendChild(el("div",{class:"row",style:"gap:6px;margin-top:8px"},[es, el("s
       var root = document.getElementById("screen-summary");
       root.innerHTML = "";
       var title = "Week of "+summaryWeek.toLocaleDateString(undefined,{month:'short',day:'numeric'})+" – "+addDays(summaryWeek,6).toLocaleDateString(undefined,{month:'short',day:'numeric'});
-      root.appendChild(el("div",{class:"section"},[ el("div",{class:"row-space"},[   el("h2",null,title),   el("button",{class:"btn", id:"exportPdfBtn", onclick:function(){     var mon=weekMon(summaryWeek);     var from=toIso(mon);     var to=toIso(addDays(mon,6));     var url='/summary-print.html?from='+from+'&to='+to;     window.open(url,'_blank');   }},"Export PDF") ]) ]));
+      root.appendChild(el("div",{class:"section"},[ el("div",{class:"row-space"},[   el("h2",null,title),   el("button",{class:"btn", id:"exportPdfBtn", onclick:function(){ var mon=weekMon(summaryWeek); var from=toIso(mon); var to=toIso(addDays(mon,6)); var SB_URL=(localStorage.getItem('SB_URL')||'https://ryeonmdmzsczrgszaatc.supabase.co'); var SB_KEY=(localStorage.getItem('SB_KEY')||'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5ZW9ubWRtenNjenJnc3phYXRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY1NjYwMTUsImV4cCI6MjA3MjE0MjAxNX0.sPXg-enI268EthpIfKF_tsZT1JqgITsQxVuqJaEzZ_Y'); var url='/summary-print.html?from='+from+'&to='+to   + '&sbUrl='+encodeURIComponent(SB_URL)   + '&sbKey='+encodeURIComponent(SB_KEY); window.open(url,'_blank');}},"Export PDF") ]) ]));
 // Cloud (beta): enter URL/key once, stored only in this browser
 var secCloud = el("div",{class:"section"},[
   el("h2",null,"Cloud (beta)"),

@@ -48,6 +48,7 @@
       a { color: inherit; text-decoration: none; }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="container">
@@ -280,14 +281,224 @@
       return {from, to};
     }
 
+    
+    // ---------- Supabase config (fill these or pass via URL as ?sbUrl=...&sbKey=...) ----------
+    const SB_URL = (new URLSearchParams(location.search).get('sbUrl')) || (localStorage.getItem('SB_URL')) || (window.SUPABASE_URL || "") || "";
+    const SB_KEY = (new URLSearchParams(location.search).get('sbKey')) || (localStorage.getItem('SB_KEY')) || (window.SUPABASE_ANON_KEY || "") || "";
+    let sb = null;
+    try{
+      if (SB_URL && SB_KEY && window.supabase && !sb) {
+        sb = window.supabase.createClient(SB_URL, SB_KEY);
+      }
+    }catch(e){ console.warn('Supabase init failed:', e); }
+
+    // ---------- Fallback subjects if we can't fetch the master list ----------
+    const FALLBACK_SUBJECTS = [
+      "English Language","English Literature","French",
+      "Maths","Physics","Chemistry","Biology",
+      "History","Geography"
+    ];
+
+    // ---------- Data loader: tries RPC/view/table options, falls back to DOM or MOCK ----------
+    async function fetchSubjects() {
+      if (!sb) return null;
+      // Try a couple of common tables for the subject catalog
+      const candidates = ["subjects","subject_list","app_subjects"];
+      for (const tab of candidates) {
+        try {
+          const { data, error } = await sb.from(tab).select("name").order("name");
+          if (!error && data && data.length) {
+            return data.map(r => r.name);
+          }
+        } catch(e) {}
+      }
+      return null;
+    }
+
+    function adaptMinutes(row){
+      return Number(
+        row.minutes ?? row.duration_min ?? row.duration ?? row.actual_min ?? row.actualMin ?? row.mins ?? 0
+      ) || 0;
+    }
+    function adaptSubject(row){
+      return String(
+        row.subject ?? row.subject_name ?? row.sub ?? row.topic ?? row.name ?? ""
+      );
+    }
+    function adaptDate(row){
+      return row.date ?? row.day ?? row.start_time ?? row.started_at ?? row.ts ?? row.created_at ?? null;
+    }
+
+    async function tryFetchSessions(fromISO, toISO){
+      if (!sb) return null;
+      const tables = [
+        {name:"sessions_actual", col:"date"},
+        {name:"sessions", col:"date"},
+        {name:"sessions", col:"start_time"},
+        {name:"study_sessions", col:"date"},
+        {name:"logs", col:"date"},
+        {name:"entries", col:"date"}
+      ];
+      for (const t of tables){
+        try{
+          const { data, error } = await sb.from(t.name).select("*").gte(t.col, fromISO).lte(t.col, toISO).limit(10000);
+          if (!error && Array.isArray(data)) {
+            return data;
+          }
+        }catch(e){ /* try next */ }
+      }
+      // Try an RPC if it exists
+      try{
+        const { data, error } = await sb.rpc("weekly_summary", { from_date: fromISO, to_date: toISO });
+        if (!error && Array.isArray(data)) return data;
+      }catch(e){}
+      return null;
+    }
+
+    async function fetchRecentSessions(daysBack=400){
+      if (!sb) return [];
+      const since = new Date(); since.setDate(since.getDate()-daysBack);
+      const fromISO = since.toISOString().slice(0,10);
+      const tables = [
+        {name:"sessions", col:"date"},
+        {name:"sessions", col:"start_time"},
+        {name:"sessions_actual", col:"date"},
+        {name:"study_sessions", col:"date"},
+        {name:"logs", col:"date"},
+        {name:"entries", col:"date"}
+      ];
+      for (const t of tables){
+        try{
+          const { data, error } = await sb.from(t.name).select("*").gte(t.col, fromISO).limit(20000);
+          if (!error && Array.isArray(data) && data.length) return data;
+        }catch(e){}
+      }
+      return [];
+    }
+
+    function startOfWeek(date) { // Monday in local (IST)
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const day = d.getDay();
+      const deltaToMon = (day+6)%7;
+      d.setDate(d.getDate()-deltaToMon);
+      d.setHours(0,0,0,0);
+      return d;
+    }
+    function endOfWeek(date) {
+      const s = startOfWeek(date);
+      const e = new Date(s); e.setDate(e.getDate()+6); e.setHours(23,59,59,999);
+      return e;
+    }
+
+    function groupByWeekIST(rows){
+      const m = new Map();
+      for(const r of rows){
+        const dt = adaptDate(r);
+        if(!dt) continue;
+        const d = new Date(dt);
+        const wkStart = startOfWeek(toIST(d));
+        const key = wkStart.toISOString().slice(0,10);
+        const arr = m.get(key) || [];
+        arr.push(r); m.set(key, arr);
+      }
+      return m;
+    }
+
+    function computeBestWeekSoFar(rows){
+      if(!rows || !rows.length) return null;
+      const grouped = groupByWeekIST(rows);
+      let best = {hours: 0, from: null, to: null};
+      for(const [wkStartISO, arr] of grouped.entries()){
+        let mins = 0;
+        for(const r of arr){ mins += adaptMinutes(r); }
+        const hrs = +(mins/60).toFixed(1);
+        if(hrs > best.hours){
+          const from = wkStartISO;
+          const d = new Date(wkStartISO);
+          const toD = new Date(d); toD.setDate(toD.getDate()+6);
+          const to = toD.toISOString().slice(0,10);
+          best = {hours: hrs, from, to};
+        }
+      }
+      return best;
+    }
+
+    function computeStreak(rows){
+      // rows: recent sessions (>= last 120 days). We build a day-map of minutes in IST
+      const map = new Map();
+      for(const r of rows){
+        const dt = adaptDate(r); if(!dt) continue;
+        const d = toIST(new Date(dt));
+        const key = isoDateIST(fromIST(new Date(d.getFullYear(), d.getMonth(), d.getDate())));
+        const prev = map.get(key) || 0;
+        map.set(key, prev + adaptMinutes(r));
+      }
+      // Count back from today IST
+      let streak = 0;
+      const todayIST = toIST(new Date());
+      const cur = new Date(todayIST.getFullYear(), todayIST.getMonth(), todayIST.getDate());
+      for(let i=0;i<365;i++){
+        const key = isoDateIST(fromIST(cur));
+        const mins = map.get(key) || 0;
+        if(mins>0){ streak++; } else { break; }
+        cur.setDate(cur.getDate()-1);
+      }
+      return streak;
+    }
+
+    async function loadWeeklyData(fromISO, toISO){
+      try{
+        let subjects = await fetchSubjects();
+        const rows = await tryFetchSessions(fromISO, toISO);
+        if (!rows || rows.length===0){
+          throw new Error("No rows for week or table not found");
+        }
+        // If no subject catalog, derive from rows
+        if(!subjects || !subjects.length){
+          subjects = Array.from(new Set(rows.map(adaptSubject).filter(Boolean))).sort();
+        }
+        // Build summary by subject
+        const subjRecords = subjects.map(name => ({ name, expectedH: EXPECTED_PER_SUBJECT_H, actualMin: 0 }));
+        const idx = Object.fromEntries(subjRecords.map((r,i)=>[r.name,i]));
+        let sessionsCount = 0;
+        for(const r of rows){
+          const sub = adaptSubject(r) || "Uncategorized";
+          const i = (sub in idx) ? idx[sub] : (idx[sub]=subjRecords.push({name:sub, expectedH:EXPECTED_PER_SUBJECT_H, actualMin:0})-1);
+          subjRecords[i].actualMin += adaptMinutes(r);
+          sessionsCount++;
+        }
+        // Compute best week so far & streak from recent history
+        const recent = await fetchRecentSessions(400);
+        const best = computeBestWeekSoFar(recent) || {hours:0, from: fromISO, to: toISO};
+        const streakDays = computeStreak(recent);
+
+        // Assemble the structure expected by renderers
+        return {
+          subjects: subjRecords.map(r => ({ name:r.name, plannedMin: r.expectedH*60, actualMin: r.actualMin })),
+          sessions: sessionsCount,
+          streakDays,
+          bestWeek: best,
+          targetWeeklyHours: (subjRecords.length * EXPECTED_PER_SUBJECT_H)
+        };
+      }catch(err){
+        console.warn("Weekly data load failed; using MOCK. Reason:", err);
+        return null;
+      }
+    }
+
     (function init(){
       const {from, to} = getQuery();
       renderMeta(from, to);
-      renderKPIs(MOCK, from, to);
-      renderGroupedBarChart(MOCK);
-      renderTable(MOCK);
-      renderHighlights(MOCK);
-      setTimeout(()=>{ window.print(); }, 300);
+      // Try real data; if not available, fall back to MOCK
+      (async ()=>{
+        const live = await loadWeeklyData(from, to);
+        const DATA = live || MOCK;
+        renderKPIs(DATA, from, to);
+        renderGroupedBarChart(DATA);
+        renderTable(DATA);
+        renderHighlights(DATA);
+        setTimeout(()=>{ window.print(); }, 400);
+      })();
     })();
   </script>
 </body>
