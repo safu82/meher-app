@@ -137,65 +137,6 @@
 
     // ---------- Local storage reader for app state ----------
     function getAppStates(){
-      // Extract subject catalog from the app state in a robust way.
-      // Returns { names: string[], idToName: Map<string,string> }
-      // Looks across common shapes: state.subjects (array of {id,name|title|label}), subject_map, subjectsById, subjectNames.
-      function extractSubjectCatalog(state){
-        const namesSet = new Set();
-        const idToName = new Map();
-
-        function addPair(id, name){
-          if (name) {
-            const clean = String(name);
-            namesSet.add(clean);
-            if (id != null) idToName.set(String(id), clean);
-          }
-        }
-
-        // 1) subjects: [{id, name|title|label|subject}]
-        if (Array.isArray(state.subjects)) {
-          state.subjects.forEach(s => {
-            const nm = s.name || s.title || s.label || s.subject || s.text;
-            addPair(s.id, nm);
-          });
-        }
-
-        // 2) subjectNames: ["English Language", "French", ...]
-        if (Array.isArray(state.subjectNames)) {
-          state.subjectNames.forEach(n => addPair(null, n));
-        }
-
-        // 3) subject_map: { "<id>": "Name", ... }
-        if (state.subject_map && typeof state.subject_map === 'object') {
-          Object.entries(state.subject_map).forEach(([id, name]) => addPair(id, name));
-        }
-
-        // 4) subjectsById: { "<id>": {name|title|label} }
-        if (state.subjectsById && typeof state.subjectsById === 'object') {
-          Object.entries(state.subjectsById).forEach(([id, obj]) => {
-            const nm = obj && (obj.name || obj.title || obj.label || obj.subject);
-            addPair(id, nm);
-          });
-        }
-
-        // 5) catalog?.subjects (nested)
-        if (state.catalog && Array.isArray(state.catalog.subjects)) {
-          state.catalog.subjects.forEach(s => addPair(s.id, s.name || s.title || s.label || s.subject));
-        }
-
-        // 6) fallback: if no catalog found but days include planned entries with subject names
-        if (namesSet.size === 0 && state.days && typeof state.days === 'object') {
-          Object.values(state.days).forEach(day => {
-            (day.planned || []).forEach(p => {
-              const nm = p.subject || p.subjectId || p.subject_id || p.name || p.title || p.label;
-              if (typeof nm === 'string') addPair(null, nm);
-            });
-          });
-        }
-
-        return { names: Array.from(namesSet), idToName };
-      }
-
       const out = [];
       for (let i=0; i<localStorage.length; i++){
         const k = localStorage.key(i);
@@ -392,37 +333,24 @@
       if (!best) return null;
 
       const rows = rowsFromState(best.state, from, to);
-      // Build subject catalog from state
-      const catalog = extractSubjectCatalog(best.state);
+      if (!rows.length) return null;
 
-      // Build subject set = catalog names + subjects seen in rows
-      const subjSet = new Set(catalog.names);
-      rows.forEach(r => {
-        const raw = r.subject;
-        // If subject is an ID and we have a map, resolve to name; else use raw
-        const name = (catalog.idToName && catalog.idToName.size && catalog.idToName.get(String(raw))) || String(raw || 'Uncategorized');
-        subjSet.add(name);
-      });
+      // Subjects: derive names from subject or subjectId
+      const subjSet = new Set(rows.map(r => String(r.subject||'Uncategorized')));
       const subjects = Array.from(subjSet).sort();
 
-      // Build records with 0 actuals for all subjects (so expected shows even when actual=0)
       const subjRecords = subjects.map(name => ({ name, actualMin: 0 }));
       const idx = Object.fromEntries(subjRecords.map((r,i)=>[r.name,i]));
 
       let sessions = 0;
       for (const r of rows){
-        const disp = (catalog.idToName && catalog.idToName.size && catalog.idToName.get(String(r.subject))) || String(r.subject);
-        const key = disp || 'Uncategorized';
-        const i = idx[key];
-        if (i != null) {
-          subjRecords[i].actualMin += Number(r.minutes||0);
-        }
+        const i = idx[String(r.subject)];
+        subjRecords[i].actualMin += Number(r.minutes||0);
         sessions++;
       }
 
       // streak + best week from the whole state
       const bestWeek = computeBestWeekSoFarFromState(best.state) || {hours:0, from, to};
-
       // streak: count consecutive IST days with any actuals > 0 till today
       function computeStreakFromState(st){
         const map = new Map();
