@@ -48,20 +48,20 @@
       a { color: inherit; text-decoration: none; }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="container">
     <header>
       <h1>Meher Study Summary</h1>
       <div class="sub" id="metaLine">Week: — | Generated: — IST</div>
+      <div class="sub">Build: <b id="buildVersion">local-v1</b></div>
     </header>
 
     <section class="kpis page-break-avoid" id="kpis"></section>
 
     <section class="chart-card page-break-avoid">
       <div class="chart-title">Expected vs Actual by Subject (hours)</div>
-      <svg id="barChart" width="900" height="260" role="img" aria-label="Planned vs Actual grouped bars"></svg>
+      <svg id="barChart" width="900" height="260" role="img" aria-label="Expected vs Actual grouped bars"></svg>
       <div class="legend">
         <div><span class="swatch" style="background:var(--accent)"></span>Expected</div>
         <div><span class="swatch" style="background:var(--accent-2)"></span>Actual</div>
@@ -131,25 +131,64 @@
       return { from: isoDateIST(fromIST(monIST)), to: isoDateIST(fromIST(sunIST)), monIST, sunIST };
     }
 
-    const MOCK = {
-      targetWeeklyHours: 32,
-      subjects: [
-        { name:'Chemistry', plannedMin: 240, actualMin: 120 },
-        { name:'English Lit', plannedMin: 240, actualMin: 192 },
-        { name:'Maths', plannedMin: 300, actualMin: 260 },
-        { name:'Physics', plannedMin: 180, actualMin: 140 },
-        { name:'Biology', plannedMin: 120, actualMin: 90 },
-        { name:'History', plannedMin: 180, actualMin: 210 }
-      ],
-      sessions: 18,
-      streakDays: 4,
-      bestWeek: { hours: 38.5, from: '2025-08-04', to:'2025-08-10' },
-    };
-
     const EXPECTED_PER_SUBJECT_H = 4; // hours per subject
-
     function hours(xMin){ return +(xMin/60).toFixed(1); }
     function pct(a,b){ if(b<=0) return 0; return Math.round((a/b)*100); }
+
+    // ---------- Local storage reader for app state ----------
+    function getAppStates(){
+      const out = [];
+      for (let i=0; i<localStorage.length; i++){
+        const k = localStorage.key(i);
+        try{
+          const v = JSON.parse(localStorage.getItem(k));
+          if (v && typeof v === 'object' && v.days && typeof v.days === 'object'){
+            out.push({key:k, state:v});
+          }
+        }catch(_){}
+      }
+      return out;
+    }
+    function rowsFromState(stateObj, fromISO, toISO){
+      const rows = [];
+      const keys = Object.keys(stateObj.days||{});
+      const toExcl = (d => { const nd=new Date(d); nd.setDate(nd.getDate()+1); return nd.toISOString().slice(0,10); })(toISO);
+      for (const iso of keys){
+        if (iso < fromISO || iso >= toExcl) continue;
+        const day = stateObj.days[iso] || {};
+        // actuals
+        (day.actuals||[]).forEach(a => {
+          const minutes = Number(a.duration||0);
+          const subject  = a.subject || a.subjectId || a.subject_id || "Uncategorized";
+          rows.push({ iso, subject, minutes });
+        });
+        // (optional) planned could be included, but we only chart actual vs expected
+      }
+      return rows;
+    }
+    function computeBestWeekSoFarFromState(stateObj){
+      // Build a map weekStartISO -> minutes
+      function startOfWeek(d){ const dd = new Date(d); const g=dd.getDay(); const diff=(g+6)%7; dd.setDate(dd.getDate()-diff); dd.setHours(0,0,0,0); return dd; }
+      const map = new Map();
+      for (const iso of Object.keys(stateObj.days||{})){
+        const d = new Date(iso+"T00:00:00");
+        const wk = startOfWeek(d);
+        const k = wk.toISOString().slice(0,10);
+        const day = stateObj.days[iso];
+        const mins = (day.actuals||[]).reduce((s,a)=>s+Number(a.duration||0),0);
+        map.set(k, (map.get(k)||0)+mins);
+      }
+      let best = { hours:0, from:null, to:null };
+      for (const [k,mins] of map){
+        const h = +(mins/60).toFixed(1);
+        if (h > best.hours){
+          const from = k;
+          const td = new Date(k); td.setDate(td.getDate()+6);
+          best = { hours:h, from, to: td.toISOString().slice(0,10) };
+        }
+      }
+      return best.hours>0 ? best : null;
+    }
 
     function renderMeta(isoFrom, isoTo){
       const nowIST = toIST(new Date());
@@ -165,15 +204,15 @@
       const totalExpectedH = data.subjects.length * EXPECTED_PER_SUBJECT_H;
       const totalActualH  = hours(data.subjects.reduce((s,r)=>s+r.actualMin,0));
       const completion = pct(totalActualH, totalExpectedH);
-      const best = data.bestWeek;
+      const best = data.bestWeek || {hours:0, from: isoFrom, to: isoTo};
 
       const items = [
         ['Expected', `${totalExpectedH.toFixed(1)}h`],
         ['Actual', `${totalActualH}h`],
         ['Completion', `${completion}%`],
-        ['Sessions', String(data.sessions)],
-        ['Streak', `${data.streakDays}d`],
-        ['Best Week So Far', `${best.hours}h (${new Date(best.from).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}–${new Date(best.to).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})})`],
+        ['Sessions', String(data.sessions||0)],
+        ['Streak', `${data.streakDays||0}d`],
+        ['Best Week So Far', `${best.hours}h${best.from?` (${new Date(best.from).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}–${new Date(best.to).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})})`:''}`],
       ];
       const wrap = document.getElementById('kpis');
       wrap.innerHTML = items.map(([label,val])=>`
@@ -219,7 +258,6 @@
         const p=EXPECTED_PER_SUBJECT_H, a=hours(s.actualMin);
         if(p>0 && a/p >= 1.1) bullets.push(`${s.name} trending strong at ${Math.round((a/p)*100)}%`);
       });
-      bullets.push(`Best day: Wed (6.0h)`);
       const list = document.getElementById('highlightsList');
       list.innerHTML = bullets.slice(0,4).map(b=>`<li>${b}</li>`).join('');
     }
@@ -263,7 +301,8 @@
         aRect.setAttribute('height', barH);
         aRect.setAttribute('rx','3');
         aRect.setAttribute('fill','var(--accent-2)');
-        svg.appendChild(aRect);      });
+        svg.appendChild(aRect);
+      });
 
       const tick0 = document.createElementNS('http://www.w3.org/2000/svg','text');
       tick0.setAttribute('x', leftPad-4); tick0.setAttribute('y', topPad-2);
@@ -272,6 +311,7 @@
       svg.appendChild(tick0);
     }
 
+    // Query & init
     function getQuery(){
       const p = new URLSearchParams(location.search);
       let from = p.get('from'), to = p.get('to');
@@ -282,246 +322,85 @@
       return {from, to};
     }
 
-    
-    // ---------- Supabase config (fill these or pass via URL as ?sbUrl=...&sbKey=...) ----------
-    const SB_URL = (new URLSearchParams(location.search).get('sbUrl')) || (localStorage.getItem('SB_URL')) || (window.SUPABASE_URL || "") || "";
-    const SB_KEY = (new URLSearchParams(location.search).get('sbKey')) || (localStorage.getItem('SB_KEY')) || (window.SUPABASE_ANON_KEY || "") || "";
-    let sb = null;
-    try{
-      if (SB_URL && SB_KEY && window.supabase && !sb) {
-        sb = window.supabase.createClient(SB_URL, SB_KEY);
+    async function buildFromLocal(from, to){
+      const states = getAppStates();
+      // Prefer the app's primary state key (one with the most days)
+      let best = null;
+      for (const s of states){
+        const dayCount = Object.keys(s.state.days||{}).length;
+        if (!best || dayCount > Object.keys(best.state.days||{}).length) best = s;
       }
-    }catch(e){ console.warn('Supabase init failed:', e); }
-    // Query param overrides for data source
-    const QP = new URLSearchParams(location.search);
-    const OV_TABLE = QP.get('table') || null;
-    const OV_DATECOL = QP.get('datecol') || null;
-    const OV_MINSCOL = QP.get('minscol') || null;
-    const OV_SUBCOL  = QP.get('subcol')  || null;
+      if (!best) return null;
 
+      const rows = rowsFromState(best.state, from, to);
+      if (!rows.length) return null;
 
-    // ---------- Fallback subjects if we can't fetch the master list ----------
-    const FALLBACK_SUBJECTS = [
-      "English Language","English Literature","French",
-      "Maths","Physics","Chemistry","Biology",
-      "History","Geography"
-    ];
+      // Subjects: derive names from subject or subjectId
+      const subjSet = new Set(rows.map(r => String(r.subject||'Uncategorized')));
+      const subjects = Array.from(subjSet).sort();
 
-    // ---------- Data loader: tries RPC/view/table options, falls back to DOM or MOCK ----------
-    async function fetchSubjects() {
-      if (!sb) return null;
-      // Try a couple of common tables for the subject catalog
-      const candidates = ["subjects","subject_list","app_subjects"];
-      for (const tab of candidates) {
-        try {
-          const { data, error } = await sb.from(tab).select("name").order("name");
-          if (!error && data && data.length) {
-            return data.map(r => r.name);
-          }
-        } catch(e) {}
+      const subjRecords = subjects.map(name => ({ name, actualMin: 0 }));
+      const idx = Object.fromEntries(subjRecords.map((r,i)=>[r.name,i]));
+
+      let sessions = 0;
+      for (const r of rows){
+        const i = idx[String(r.subject)];
+        subjRecords[i].actualMin += Number(r.minutes||0);
+        sessions++;
       }
-      return null;
-    }
 
-    function adaptMinutes(row){
-      return Number(
-        row.minutes ?? row.duration_min ?? row.duration ?? row.actual_min ?? row.actualMin ?? row.mins ?? 0
-      ) || 0;
-    }
-    function adaptSubject(row){
-      if (OV_SUBCOL && row[OV_SUBCOL] != null) return String(row[OV_SUBCOL]);
-      return String(row.subject ?? row.subject_name ?? row.sub ?? row.topic ?? row.name ?? "");
-    }
-    function adaptDate(row){
-      if (OV_DATECOL && row[OV_DATECOL] != null) return row[OV_DATECOL];
-      return row.date ?? row.day ?? row.start_time ?? row.started_at ?? row.ts ?? row.created_at ?? null;
-    }
-
-    async function tryFetchSessions(fromISO, toISO){
-      if (!sb) return null;
-      if (OV_TABLE){
-        try{
-          const col = OV_DATECOL || 'date';
-          const { data, error } = await sb.from(OV_TABLE).select("*").gte(col, fromISO).lte(col, toISO).limit(10000);
-          if (!error && Array.isArray(data)) return { data, source: `${OV_TABLE}.${col}` };
-        }catch(e){ /* fall through */ }
-      }
-      const tables = [
-        {name:"sessions_actual", col:"date"},
-        {name:"sessions", col:"date"},
-        {name:"sessions", col:"start_time"},
-        {name:"study_sessions", col:"date"},
-        {name:"logs", col:"date"},
-        {name:"entries", col:"date"}
-      ];
-      for (const t of tables){
-        try{
-          const { data, error } = await sb.from(t.name).select("*").gte(t.col, fromISO).lte(t.col, toISO).limit(10000);
-          if (!error && Array.isArray(data)) return { data, source: `${t.name}.${t.col}` };
-        }catch(e){ /* try next */ }
-      }
-      try{
-        const { data, error } = await sb.rpc("weekly_summary", { from_date: fromISO, to_date: toISO });
-        if (!error && Array.isArray(data)) return { data, source: "rpc.weekly_summary" };
-      }catch(e){}
-      return null;
-    }
-
-    async function fetchRecentSessions(daysBack=400){
-      if (!sb) return [];
-      if (OV_TABLE){
-        try{
-          const since = new Date(); since.setDate(since.getDate()-daysBack);
-          const fromISO = since.toISOString().slice(0,10);
-          const col = OV_DATECOL || 'date';
-          const { data, error } = await sb.from(OV_TABLE).select("*").gte(col, fromISO).limit(20000);
-          if (!error && Array.isArray(data) && data.length) return data;
-        }catch(e){}
-      }
-      const since = new Date(); since.setDate(since.getDate()-daysBack);
-      const fromISO = since.toISOString().slice(0,10);
-      const tables = [
-        {name:"sessions", col:"date"},
-        {name:"sessions", col:"start_time"},
-        {name:"sessions_actual", col:"date"},
-        {name:"study_sessions", col:"date"},
-        {name:"logs", col:"date"},
-        {name:"entries", col:"date"}
-      ];
-      for (const t of tables){
-        try{
-          const { data, error } = await sb.from(t.name).select("*").gte(t.col, fromISO).limit(20000);
-          if (!error && Array.isArray(data) && data.length) return data;
-        }catch(e){}
-      }
-      return [];
-    }
-
-    function startOfWeek(date) { // Monday in local (IST)
-      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const day = d.getDay();
-      const deltaToMon = (day+6)%7;
-      d.setDate(d.getDate()-deltaToMon);
-      d.setHours(0,0,0,0);
-      return d;
-    }
-    function endOfWeek(date) {
-      const s = startOfWeek(date);
-      const e = new Date(s); e.setDate(e.getDate()+6); e.setHours(23,59,59,999);
-      return e;
-    }
-
-    function groupByWeekIST(rows){
-      const m = new Map();
-      for(const r of rows){
-        const dt = adaptDate(r);
-        if(!dt) continue;
-        const d = new Date(dt);
-        const wkStart = startOfWeek(toIST(d));
-        const key = wkStart.toISOString().slice(0,10);
-        const arr = m.get(key) || [];
-        arr.push(r); m.set(key, arr);
-      }
-      return m;
-    }
-
-    function computeBestWeekSoFar(rows){
-      if(!rows || !rows.length) return null;
-      const grouped = groupByWeekIST(rows);
-      let best = {hours: 0, from: null, to: null};
-      for(const [wkStartISO, arr] of grouped.entries()){
-        let mins = 0;
-        for(const r of arr){ mins += adaptMinutes(r); }
-        const hrs = +(mins/60).toFixed(1);
-        if(hrs > best.hours){
-          const from = wkStartISO;
-          const d = new Date(wkStartISO);
-          const toD = new Date(d); toD.setDate(toD.getDate()+6);
-          const to = toD.toISOString().slice(0,10);
-          best = {hours: hrs, from, to};
+      // streak + best week from the whole state
+      const bestWeek = computeBestWeekSoFarFromState(best.state) || {hours:0, from, to};
+      // streak: count consecutive IST days with any actuals > 0 till today
+      function computeStreakFromState(st){
+        const map = new Map();
+        for (const iso of Object.keys(st.days||{})){
+          const day = st.days[iso];
+          const mins = (day.actuals||[]).reduce((s,a)=>s+Number(a.duration||0),0);
+          map.set(iso, mins);
         }
+        let streak = 0;
+        const todayIST = toIST(new Date());
+        const cur = new Date(todayIST.getFullYear(), todayIST.getMonth(), todayIST.getDate());
+        for(let i=0;i<365;i++){
+          const key = isoDateIST(fromIST(cur));
+          const mins = map.get(key) || 0;
+          if(mins>0){ streak++; } else { break; }
+          cur.setDate(cur.getDate()-1);
+        }
+        return streak;
       }
-      return best;
+      const streakDays = computeStreakFromState(best.state);
+
+      // Assemble
+      return {
+        subjects: subjRecords.map(r => ({ name:r.name, plannedMin: EXPECTED_PER_SUBJECT_H*60, actualMin: r.actualMin })),
+        sessions,
+        streakDays,
+        bestWeek,
+        targetWeeklyHours: subjects.length * EXPECTED_PER_SUBJECT_H
+      };
     }
 
-    function computeStreak(rows){
-      // rows: recent sessions (>= last 120 days). We build a day-map of minutes in IST
-      const map = new Map();
-      for(const r of rows){
-        const dt = adaptDate(r); if(!dt) continue;
-        const d = toIST(new Date(dt));
-        const key = isoDateIST(fromIST(new Date(d.getFullYear(), d.getMonth(), d.getDate())));
-        const prev = map.get(key) || 0;
-        map.set(key, prev + adaptMinutes(r));
-      }
-      // Count back from today IST
-      let streak = 0;
-      const todayIST = toIST(new Date());
-      const cur = new Date(todayIST.getFullYear(), todayIST.getMonth(), todayIST.getDate());
-      for(let i=0;i<365;i++){
-        const key = isoDateIST(fromIST(cur));
-        const mins = map.get(key) || 0;
-        if(mins>0){ streak++; } else { break; }
-        cur.setDate(cur.getDate()-1);
-      }
-      return streak;
-    }
-
-    async function loadWeeklyData(fromISO, toISO){
-      try{
-        let subjects = await fetchSubjects();
-        const rows = await tryFetchSessions(fromISO, toISO);
-        if (!rows || rows.length===0){
-          throw new Error("No rows for week or table not found");
-        }
-        // If no subject catalog, derive from rows
-        if(!subjects || !subjects.length){
-          subjects = Array.from(new Set(rows.map(adaptSubject).filter(Boolean))).sort();
-        }
-        // Build summary by subject
-        const subjRecords = subjects.map(name => ({ name, expectedH: EXPECTED_PER_SUBJECT_H, actualMin: 0 }));
-        const idx = Object.fromEntries(subjRecords.map((r,i)=>[r.name,i]));
-        let sessionsCount = 0;
-        for(const r of rows){
-          const sub = adaptSubject(r) || "Uncategorized";
-          const i = (sub in idx) ? idx[sub] : (idx[sub]=subjRecords.push({name:sub, expectedH:EXPECTED_PER_SUBJECT_H, actualMin:0})-1);
-          subjRecords[i].actualMin += adaptMinutes(r);
-          sessionsCount++;
-        }
-        // Compute best week so far & streak from recent history
-        const recent = await fetchRecentSessions(400);
-        const best = computeBestWeekSoFar(recent) || {hours:0, from: fromISO, to: toISO};
-        const streakDays = computeStreak(recent);
-
-        // Assemble the structure expected by renderers
-        return {
-          subjects: subjRecords.map(r => ({ name:r.name, plannedMin: r.expectedH*60, actualMin: r.actualMin })),
-          sessions: sessionsCount,
-          streakDays,
-          bestWeek: best,
-          targetWeeklyHours: (subjRecords.length * EXPECTED_PER_SUBJECT_H)
-        };
-      }catch(err){
-        console.warn("Weekly data load failed; using MOCK. Reason:", err);
-        return null;
-      }
-    }
-
-    (function init(){
+    (async function init(){
       const {from, to} = getQuery();
       renderMeta(from, to);
-      // Try real data; if not available, fall back to MOCK
-      (async ()=>{
-        const live = await loadWeeklyData(from, to);
-        const DATA = live || MOCK;
-        const hint = document.getElementById('dataHint');
-        if (hint) { hint.textContent = live ? `Data source: ${OV_TABLE ? OV_TABLE : 'auto-detected'} (cols: ${OV_DATECOL||'date'} / ${OV_SUBCOL||'subject'} / ${OV_MINSCOL||'minutes'})` : 'Data source: MOCK (fallback)'; }
-        renderKPIs(DATA, from, to);
-        renderGroupedBarChart(DATA);
-        renderTable(DATA);
-        renderHighlights(DATA);
-        setTimeout(()=>{ window.print(); }, 400);
-      })();
+
+      // No Supabase: build from local state only
+      const DATA = await buildFromLocal(from, to);
+      const hint = document.getElementById('dataHint');
+      if (DATA){
+        hint.textContent = 'Data source: localStorage (app state)';
+      } else {
+        hint.textContent = 'Data source: MOCK (no local data found)';
+      }
+      const FINAL = DATA || { subjects: [], sessions:0, streakDays:0, bestWeek:null, targetWeeklyHours: 0 };
+
+      renderKPIs(FINAL, from, to);
+      renderGroupedBarChart(FINAL);
+      renderTable(FINAL);
+      renderHighlights(FINAL);
+      setTimeout(()=>{ window.print(); }, 400);
     })();
   </script>
 </body>
