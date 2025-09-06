@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>meher-summary_print.pdf</title>
+  <style>
+    :root{
+      /* Map these to your app’s palette if you want. */
+      --brand-bg:#ffffff;
+      --brand-fg:#1f2937; /* slate-800 */
+      --brand-muted:#6b7280; /* slate-500 */
+      --accent:#8bd3dd;     /* pastel teal */
+      --accent-2:#ffd6a5;   /* pastel peach */
+      --card:#f7fafc;
+      --table-border:#e5e7eb;
+    }
+    html,body{background:var(--brand-bg); color:var(--brand-fg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji"; line-height:1.4; }
+    .container{max-width: 940px; margin: 0 auto; padding: 16px 20px 64px;}
+    h1{font-size:22px; margin:0 0 8px 0}
+    .sub{color:var(--brand-muted); font-size:13px; margin-bottom:14px}
+    .kpis{display:grid; grid-template-columns: repeat(3, 1fr) repeat(3, 1fr); gap:10px; margin:10px 0 16px}
+    .kpi{background:var(--card); border:1px solid var(--table-border); border-radius:12px; padding:10px 12px}
+    .kpi .label{font-size:11px; color:var(--brand-muted)}
+    .kpi .value{font-size:18px; font-weight:700}
+    .chart-card{background:var(--card); border:1px solid var(--table-border); border-radius:12px; padding:12px; margin:6px 0 16px}
+    .chart-title{font-size:13px; color:var(--brand-muted); margin-bottom:6px}
+    .legend{display:flex; gap:12px; font-size:12px; color:var(--brand-muted); margin:4px 0 0}
+    .legend .swatch{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px}
+    .table-wrap{overflow:hidden; border:1px solid var(--table-border); border-radius:12px; }
+    table{width:100%; border-collapse:collapse; font-size:13px}
+    thead th{background:#fbfbfb; text-align:left; padding:10px; border-bottom:1px solid var(--table-border)}
+    tbody td{padding:10px; border-bottom:1px solid var(--table-border)}
+    tfoot td{padding:10px; font-weight:700; background:#fcfcfc}
+    .neg{color:#b91c1c}
+    .pos{color:#065f46}
+    .highlights{margin:14px 0 8px}
+    .highlights h3{font-size:14px; margin:0 0 6px}
+    .highlights ul{margin:0; padding-left:18px}
+    .muted{color:var(--brand-muted)}
+    .filename{font-size:11px; color:var(--brand-muted); margin-top:8px}
+    .footer{position:fixed; bottom:8px; left:0; right:0; text-align:center; font-size:11px; color:var(--brand-muted)}
+    .footer::after{content:"Page " counter(page) " / " counter(pages);}
+    .page-break-avoid{break-inside:avoid}
+    .right{float:right}
+    @page { size: A4; margin: 12mm; }
+    @media print{
+      .no-print{display:none !important}
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Meher Study Summary</h1>
+      <div class="sub" id="metaLine">Week: — | Generated: — IST</div>
+    </header>
+
+    <section class="kpis page-break-avoid" id="kpis">
+      <!-- KPI cards will be injected -->
+    </section>
+
+    <section class="chart-card page-break-avoid">
+      <div class="chart-title">Planned vs Actual by Subject (hours)</div>
+      <svg id="barChart" width="900" height="260" role="img" aria-label="Planned vs Actual grouped bars"></svg>
+      <div class="legend">
+        <div><span class="swatch" style="background:var(--accent)"></span>Planned</div>
+        <div><span class="swatch" style="background:var(--accent-2)"></span>Actual</div>
+      </div>
+    </section>
+
+    <section class="table-wrap page-break-avoid">
+      <table id="subjectTable">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>Planned (h)</th>
+            <th>Actual (h)</th>
+            <th>Δ (h)</th>
+            <th>% Complete</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td id="tPlanned">0.0</td>
+            <td id="tActual">0.0</td>
+            <td id="tDelta">0.0</td>
+            <td id="tPct">0%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+
+    <section class="highlights page-break-avoid">
+      <h3>Highlights</h3>
+      <ul id="highlightsList"></ul>
+      <div class="filename" id="fileHint"></div>
+    </section>
+  </div>
+
+  <div class="footer"></div>
+
+  <script>
+    // ====== Helpers: IST date math and formatting ======
+    const IST_OFFSET_MIN = 330; // +05:30
+    function toIST(dateUTC=new Date()){
+      return new Date(dateUTC.getTime() + IST_OFFSET_MIN*60000);
+    }
+    function fromIST(istDate){
+      return new Date(istDate.getTime() - IST_OFFSET_MIN*60000);
+    }
+    function isoDateIST(d){ // YYYY-MM-DD in IST
+      const ist = toIST(d);
+      const y = ist.getFullYear();
+      const m = (ist.getMonth()+1).toString().padStart(2,'0');
+      const day = ist.getDate().toString().padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+    function formatRangeHuman(isoFrom, isoTo){
+      const [fy,fm,fd]=isoFrom.split('-').map(Number);
+      const [ty,tm,td]=isoTo.split('-').map(Number);
+      const a = new Date(fy, fm-1, fd);
+      const b = new Date(ty, tm-1, td);
+      const fmt = (d)=> d.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+      return `${fmt(a)} – ${fmt(b)}`;
+    }
+    function computeWeekIST(dateUTC=new Date()){
+      const ist = toIST(dateUTC);
+      const day = ist.getDay(); // 0=Sun..6=Sat
+      const deltaToMon = (day+6)%7; // Sun->6, Mon->0
+      const monIST = new Date(ist.getFullYear(), ist.getMonth(), ist.getDate()); // midnight IST
+      monIST.setDate(monIST.getDate() - deltaToMon);
+      const sunIST = new Date(monIST); sunIST.setDate(monIST.getDate()+6);
+      return {
+        from: isoDateIST(fromIST(monIST)), // back to UTC-based ISO date
+        to: isoDateIST(fromIST(sunIST)),
+        monIST, sunIST
+      };
+    }
+
+    // ====== Mock data (Step 1 only) ======
+    const MOCK = {
+      targetWeeklyHours: 32,
+      subjects: [
+        { name:'Chemistry', plannedMin: 240, actualMin: 120 },
+        { name:'English Lit', plannedMin: 240, actualMin: 192 },
+        { name:'Maths', plannedMin: 300, actualMin: 260 },
+        { name:'Physics', plannedMin: 180, actualMin: 140 },
+        { name:'Biology', plannedMin: 120, actualMin: 90 },
+        { name:'History', plannedMin: 180, actualMin: 210 }
+      ],
+      sessions: 18,
+      streakDays: 4,
+      bestWeek: { hours: 38.5, from: '2025-08-04', to:'2025-08-10' }, // Mon–Sun
+    };
+
+    // ====== Rendering ======
+    function hours(xMin){ return +(xMin/60).toFixed(1); }
+    function pct(a,b){ if(b<=0) return 0; return Math.round((a/b)*100); }
+
+    function renderMeta(isoFrom, isoTo){
+      const nowIST = toIST(new Date());
+      const gen = nowIST.toLocaleString('en-GB',{hour12:false});
+      document.getElementById('metaLine').textContent =
+        `Week: ${formatRangeHuman(isoFrom, isoTo)} | Generated: ${gen} IST`;
+      const filename = `meher-summary_${isoFrom}_to_${isoTo}.pdf`;
+      document.title = filename;
+      document.getElementById('fileHint').textContent = filename;
+    }
+
+    function renderKPIs(data, isoFrom, isoTo){
+      const totalPlannedH = hours(data.subjects.reduce((s,r)=>s+r.plannedMin,0));
+      const totalActualH  = hours(data.subjects.reduce((s,r)=>s+r.actualMin,0));
+      const completion = pct(totalActualH, data.targetWeeklyHours);
+      const best = data.bestWeek;
+
+      const items = [
+        ['Planned', `${totalPlannedH}h`],
+        ['Actual', `${totalActualH}h`],
+        ['Completion', `${completion}%`],
+        ['Sessions', String(data.sessions)],
+        ['Streak', `${data.streakDays}d`],
+        ['Best Week So Far', `${best.hours}h (${new Date(best.from).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}–${new Date(best.to).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})})`],
+      ];
+      const wrap = document.getElementById('kpis');
+      wrap.innerHTML = items.map(([label,val])=>`
+        <div class="kpi">
+          <div class="label">${label}</div>
+          <div class="value">${val}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderTable(data){
+      const tbody = document.querySelector('#subjectTable tbody');
+      let tPlan=0, tAct=0;
+      tbody.innerHTML = data.subjects.map(s=>{
+        const p = hours(s.plannedMin), a = hours(s.actualMin);
+        const d = +(a - p).toFixed(1);
+        const pc = p>0 ? Math.round((a/p)*100) : 0;
+        tPlan += p; tAct += a;
+        return `<tr>
+          <td>${s.name}</td>
+          <td>${p.toFixed(1)}</td>
+          <td>${a.toFixed(1)}</td>
+          <td class="${d<0?'neg':'pos'}">${d>0?'+':''}${d.toFixed(1)}</td>
+          <td>${pc}%</td>
+        </tr>`;
+      }).join('');
+      const tDelta = +(tAct - tPlan).toFixed(1);
+      const tPct = tPlan>0 ? Math.round((tAct/tPlan)*100) : 0;
+      document.getElementById('tPlanned').textContent = tPlan.toFixed(1);
+      document.getElementById('tActual').textContent  = tAct.toFixed(1);
+      document.getElementById('tDelta').textContent   = (tDelta>0?'+':'')+tDelta.toFixed(1);
+      document.getElementById('tDelta').className = tDelta<0?'neg':'pos';
+      document.getElementById('tPct').textContent     = `${tPct}%`;
+    }
+
+    function renderHighlights(data){
+      const totalPlannedH = hours(data.subjects.reduce((s,r)=>s+r.plannedMin,0));
+      const totalActualH  = hours(data.subjects.reduce((s,r)=>s+r.actualMin,0));
+      const bullets = [];
+
+      // Lagging subjects (Δ ≤ −1.0h)
+      data.subjects.forEach(s=>{
+        const p=hours(s.plannedMin), a=hours(s.actualMin), d=+(a-p).toFixed(1);
+        if(d <= -1) bullets.push(`${s.name} is ${d.toFixed(1)}h vs plan`);
+      });
+
+      // Leading subjects (% ≥ 110%)
+      data.subjects.forEach(s=>{
+        const p=hours(s.plannedMin), a=hours(s.actualMin);
+        if(p>0 && a/p >= 1.1) bullets.push(`${s.name} trending strong at ${Math.round((a/p)*100)}%`);
+      });
+
+      // Best day (mocked for Step 1)
+      bullets.push(`Best day: Wed (6.0h)`);
+
+      // Cap to 4 for readability
+      const list = document.getElementById('highlightsList');
+      list.innerHTML = bullets.slice(0,4).map(b=>`<li>${b}</li>`).join('');
+    }
+
+    function renderGroupedBarChart(data){
+      const svg = document.getElementById('barChart');
+      const width = svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal.width : 900;
+      const height = svg.viewBox.baseVal && svg.viewBox.baseVal.height ? svg.viewBox.baseVal.height : 260;
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.innerHTML = '';
+      const leftPad = 140, rightPad = 24, topPad = 10, rowH = 32, gap = 6;
+      const chartW = width - leftPad - rightPad;
+      const maxHrs = Math.max(1, ...data.subjects.map(s=>Math.max(hours(s.plannedMin), hours(s.actualMin))));
+      const barH = 10;
+
+      data.subjects.forEach((s, i)=>{
+        const y = topPad + i*(rowH);
+        // Subject label
+        const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+        label.setAttribute('x', 0);
+        label.setAttribute('y', y + barH + 6);
+        label.setAttribute('font-size','12');
+        label.textContent = s.name;
+        svg.appendChild(label);
+
+        // Scales
+        const p = hours(s.plannedMin), a = hours(s.actualMin);
+        const pw = (p/maxHrs) * chartW;
+        const aw = (a/maxHrs) * chartW;
+
+        // Planned bar (accent)
+        const pRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        pRect.setAttribute('x', leftPad);
+        pRect.setAttribute('y', y);
+        pRect.setAttribute('width', pw);
+        pRect.setAttribute('height', barH);
+        pRect.setAttribute('rx','3');
+        pRect.setAttribute('fill','var(--accent)');
+        svg.appendChild(pRect);
+
+        // Actual bar (accent-2) under planned, slightly lower (grouped)
+        const aRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        aRect.setAttribute('x', leftPad);
+        aRect.setAttribute('y', y + barH + 4);
+        aRect.setAttribute('width', aw);
+        aRect.setAttribute('height', barH);
+        aRect.setAttribute('rx','3');
+        aRect.setAttribute('fill','var(--accent-2)');
+        svg.appendChild(aRect);
+
+        // Numbers at end (actual)
+        const val = document.createElementNS('http://www.w3.org/2000/svg','text');
+        val.setAttribute('x', leftPad + Math.max(pw, aw) + 6);
+        val.setAttribute('y', y + barH + 4);
+        val.setAttribute('font-size','11');
+        val.setAttribute('fill','var(--brand-muted)');
+        val.textContent = `${a.toFixed(1)}h`;
+        svg.appendChild(val);
+      });
+
+      // Axis ticks (0, maxHrs)
+      const tick0 = document.createElementNS('http://www.w3.org/2000/svg','text');
+      tick0.setAttribute('x', leftPad-4); tick0.setAttribute('y', topPad-2);
+      tick0.setAttribute('text-anchor','end'); tick0.setAttribute('font-size','11');
+      tick0.textContent = 'Hours';
+      svg.appendChild(tick0);
+    }
+
+    // ====== Boot ======
+    function getQuery(){
+      const p = new URLSearchParams(location.search);
+      let from = p.get('from'), to = p.get('to');
+      if(!from || !to){
+        const w = computeWeekIST(new Date());
+        from = w.from; to = w.to;
+      }
+      return {from, to};
+    }
+
+    (function init(){
+      const {from, to} = getQuery();
+      renderMeta(from, to);
+      renderKPIs(MOCK, from, to);
+      renderGroupedBarChart(MOCK);
+      renderTable(MOCK);
+      renderHighlights(MOCK);
+
+      // Give the browser a tick to render before print
+      setTimeout(()=>{ window.print(); }, 300);
+    })();
+  </script>
+</body>
+</html>
