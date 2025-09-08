@@ -149,6 +149,35 @@
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // Early globals so UI can safely read them before we initialize Supabase later.
+  window.SHOW_CLOUD   = true; // show Cloud panel unless overridden later
+  window.SUPABASE_URL  = localStorage.getItem('supa_url')  || "";
+  window.SUPABASE_ANON = localStorage.getItem('supa_anon') || "";
+  window.SUPA_USER_ID  = localStorage.getItem('supa_user_id') || "";
+  window.sb = null; // will be set in supaReady()
+
+  window.addEventListener('error', function(e){
+    try{
+      var box = document.getElementById('error-panel');
+      if(box){
+        box.style.display='block';
+        box.textContent = 'Error: ' + (e.message || e.toString());
+      }
+    }catch(_){}
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    try{
+      var box = document.getElementById('error-panel');
+      if(box){
+        box.style.display='block';
+        var msg = (e.reason && (e.reason.message || e.reason.toString())) || ''+e;
+        box.textContent = 'Error: ' + msg;
+      }
+    }catch(_){}
+  });
+</script>
+
 
   <!-- Meher Progress Card (dual rings) -->
   <style>
@@ -610,32 +639,96 @@ secLog.appendChild(
       root.appendChild(secLog);
     }
 
-    function markDoneTodayTuition(s){
-      var iso = toIso(todayDate);
-      upsertDay(iso, function(d){
-        var already = (d.actuals||[]).some(function(a){return a.type==='tuition' && a.subjectId===s.subjectId && a.startActual===s.start && a.endActual===s.end;});
-        if(already) return;
-        var mins = dur(s.start,s.end);
-        d.actuals = (d.actuals||[]);
-        d.actuals.push({id:cryptoUUID(), sessionPlanId:null, subjectId:s.subjectId, type:"tuition", startActual:s.start, endActual:s.end, duration:mins});
-        var t = d.tuition[s.idx]; if(t) t.completed=true;
-      });
-      renderAll();
+ 
+function markDoneTodayTuition(s){
+  var iso = toIso(todayDate);
+
+  upsertDay(iso, function(d){
+    var already = (d.actuals||[]).some(function(a){
+      return a.type==='tuition' && a.subjectId===s.subjectId && a.startActual===s.start && a.endActual===s.end;
+    });
+    if(already) return;
+
+    var mins = dur(s.start,s.end);
+    d.actuals = (d.actuals||[]);
+    d.actuals.push({
+      id: cryptoUUID(),
+      sessionPlanId: null,
+      subjectId: s.subjectId,
+      type: "tuition",
+      startActual: s.start,
+      endActual: s.end,
+      duration: mins
+    });
+    var t = d.tuition[s.idx]; if(t) t.completed = true;
+  });
+
+  // also write to DB (non-blocking)
+  try {
+    if (window.logActual) {
+      window.logActual({
+        subjectId: s.subjectId,
+        startMin: parseM(s.start),
+        endMin:   parseM(s.end)
+      }).catch(console.warn);
     }
+  } catch(_) {}
+
+  renderAll();
+}
+
+
+
     function markDoneTodaySelf(s){
-      var iso = toIso(todayDate);
-      upsertDay(iso, function(d){
-        var p = d.plan.find(function(x){return x.id===s.planId;});
-        if(!p) return;
-        var already = (d.actuals||[]).some(function(a){return a.sessionPlanId===p.id;});
-        if(already) return;
-        var mins = dur(p.start,p.end);
-        d.actuals = (d.actuals||[]);
-        d.actuals.push({id:cryptoUUID(), sessionPlanId:p.id, subjectId:p.subjectId, type:"self", startActual:p.start, endActual:p.end, duration:mins});
-        p.completed = true;
-      });
-      renderAll();
+  var iso = toIso(todayDate);
+  var justLogged = null;
+
+  upsertDay(iso, function(d){
+    var p = d.plan.find(function(x){ return x.id === s.planId; });
+    if(!p) return;
+    var already = (d.actuals||[]).some(function(a){ return a.sessionPlanId === p.id; });
+    if(already) return;
+
+    var mins = dur(p.start, p.end);
+    d.actuals = (d.actuals||[]);
+    justLogged = {
+      id: cryptoUUID(),
+      sessionPlanId: p.id,
+      subjectId: p.subjectId,
+      type: "self",
+      startActual: p.start,
+      endActual: p.end,
+      duration: mins
+    };
+    d.actuals.push(justLogged);
+    p.completed = true;
+  });
+
+  // 🔗 NEW: also write this session to the database (non-blocking)
+  try {
+    if (window.logActual) {
+      // prefer exact times; include plan_id/topic for nicer audits
+      window.logActual({
+        subjectId: justLogged ? justLogged.subjectId : (s && s.subjectId),
+        startMin: parseM(justLogged ? justLogged.startActual : "00:00"),
+        endMin:   parseM(justLogged ? justLogged.endActual   : "00:00"),
+        planId:   s && s.planId,
+        topic:    (function(){
+          // best-effort pick up the topic from current plan item
+          try {
+            var d = state.days[iso] || {plan:[]};
+            var p = (d.plan||[]).find(function(pp){return pp.id === (s && s.planId);});
+            return p && p.topic || undefined;
+          } catch(_) { return undefined; }
+        })(),
+        // iso: iso, // optional
+      }).catch(console.warn);
     }
+  } catch(_) {}
+
+  renderAll();
+}
+
 
     function setTuitionStatus(iso, idx, status){
       upsertDay(iso, function(d){
@@ -2179,6 +2272,10 @@ var SHOW_CLOUD = location.search.includes("dev=1"); // Cloud panel only shows wi
   }
 })();
 </script>
+
+<script src="log-actual.js?v=2"></script>
+
+
 
 </body>
 </html>
