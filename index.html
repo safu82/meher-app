@@ -2275,6 +2275,50 @@ var SHOW_CLOUD = location.search.includes("dev=1"); // Cloud panel only shows wi
 
 <script src="log-actual.js?v=2"></script>
 
+<script>
+(function(){
+  function ready(fn){ document.readyState!='loading' ? fn() : document.addEventListener('DOMContentLoaded',fn); }
+  ready(function(){
+    if (!window.logActual) return; // waits until helper is present
+
+    // Wrap existing "Done" functions so we always hit the DB, regardless of older code paths.
+    const safeWrap = (fnName) => {
+      const orig = window[fnName];
+      if (typeof orig !== 'function') return;
+
+      window[fnName] = function(...args){
+        try {
+          const ret = orig.apply(this, args);
+          // Try to infer the session data and call logActual as a safety net.
+          setTimeout(() => {
+            try {
+              if (typeof toIso !== 'function' || !window.todayDate || !window.state) return;
+              const iso = toIso(todayDate);
+              const d = (state.days && state.days[iso]) || {};
+              const last = (d.actuals || [])[ (d.actuals||[]).length - 1 ];
+              if (!last) return;
+              // Build a payload from the latest actual
+              const pm = (t)=>{ try { return parseM(t); } catch { return null; } };
+              const s = pm(last.startActual), e = pm(last.endActual);
+              const payload = (s!=null && e!=null)
+                ? { subjectId: last.subjectId, startMin: s, endMin: e, iso }
+                : { subjectId: last.subjectId, durationMin: Math.floor(Number(last.duration || 0)), iso };
+              window.logActual(payload).catch(console.warn);
+            } catch (e) { console.warn(e); }
+          }, 50);
+          return ret;
+        } catch (e) {
+          console.error(e);
+          throw e;
+        }
+      };
+    };
+
+    safeWrap('markDoneTodaySelf');
+    safeWrap('markDoneTodayTuition');
+  });
+})();
+</script>
 
 
 </body>
